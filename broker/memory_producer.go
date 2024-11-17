@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/xid"
 
-	"lego/container"
-	"lego/utils"
+	"github.com/joshqu1985/lego/container"
+	"github.com/joshqu1985/lego/utils"
 )
 
 func NewMemoryProducer(conf Config) (Producer, error) {

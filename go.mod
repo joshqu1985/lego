@@ -1,4 +1,4 @@
-module lego
+module github.com/joshqu1985/lego
 
 go 1.22.7
 
@@ -11,6 +11,7 @@ require (
 	github.com/bytedance/sonic v1.12.3
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/ghodss/yaml v1.0.0
+	github.com/golang/glog v1.2.2
 	github.com/nacos-group/nacos-sdk-go/v2 v2.2.7
 	github.com/pkg/errors v0.9.1
 	github.com/redis/go-redis/v9 v9.6.1
@@ -21,14 +22,11 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.16
 	go.uber.org/zap v1.21.0
 	google.golang.org/grpc v1.67.1
-	google.golang.org/grpc/examples v0.0.0-20241108060052-a3a865707898
 	google.golang.org/protobuf v1.35.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 )
-
-replace github.com/apolloconfig/agollo/v4 => ../../../github.com/apolloconfig/agollo
 
 require (
 	contrib.go.opencensus.io/exporter/ocagent v0.6.0 // indirect

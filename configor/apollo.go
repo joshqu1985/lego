@@ -3,13 +3,13 @@ package configor
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/apolloconfig/agollo/v4"
 	"github.com/apolloconfig/agollo/v4/env/config"
 	"github.com/apolloconfig/agollo/v4/storage"
+	"github.com/golang/glog"
 )
 
 func NewApollo(conf *SourceConfig, opts options) (Configor, error) {
@@ -108,7 +108,7 @@ type CustomChangeListener struct {
 func (c *CustomChangeListener) OnChange(_ *storage.ChangeEvent) {
 	data, err := c.apolloConfig.read()
 	if err != nil {
-		log.Println("apollo config read err:", err)
+		glog.Errorf("apollo config read err:%v", err)
 		return
 	}
 	c.notify(data)

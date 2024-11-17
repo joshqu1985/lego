@@ -1,9 +1,9 @@
 package encoding
 
 import (
-	"lego/encoding/json"
-	"lego/encoding/toml"
-	"lego/encoding/yaml"
+	"github.com/joshqu1985/lego/encoding/json"
+	"github.com/joshqu1985/lego/encoding/toml"
+	"github.com/joshqu1985/lego/encoding/yaml"
 )
 
 type Encoding interface {

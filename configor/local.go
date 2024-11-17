@@ -2,12 +2,12 @@ package configor
 
 import (
 	"io"
-	"log"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/golang/glog"
 )
 
 func NewLocal(file string, opts options) (Configor, error) {
@@ -90,7 +90,7 @@ func (this *localConfig) run() {
 			if event.Has(fsnotify.Write) {
 				data, err := this.read(event.Name)
 				if err != nil {
-					log.Println("local config read error:", err)
+					glog.Errorf("local config read err:%v", err)
 					continue
 				}
 				this.opts.WatchChange(data)
@@ -99,7 +99,7 @@ func (this *localConfig) run() {
 			if !ok {
 				return
 			}
-			log.Println("error:", err)
+			glog.Errorf("local config err:%v", err)
 		}
 	}
 }

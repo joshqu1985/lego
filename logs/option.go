@@ -1,7 +1,7 @@
 package logs
 
 import (
-	"lego/broker"
+	"github.com/joshqu1985/lego/broker"
 )
 
 type Level int8

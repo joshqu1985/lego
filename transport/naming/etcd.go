@@ -3,16 +3,16 @@ package naming
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/samber/lo"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-func NewEtcd(conf *Config) Naming {
+func NewEtcd(conf *Config) (Naming, error) {
 	c := &etcd{
 		services: make(map[string]*etcdService),
 		quit:     make(chan struct{}),
@@ -20,11 +20,9 @@ func NewEtcd(conf *Config) Naming {
 	}
 
 	// etcd前缀 discovery:${conf.Cluster}:
-	prefix := strings.Join([]string{"discovery", conf.Cluster}, ":")
-	c.prefix = prefix + ":"
+	c.prefix = strings.Join([]string{"naming", conf.Cluster}, ":")
 
-	_ = c.init(conf)
-	return c
+	return c, c.init(conf)
 }
 
 type etcd struct {
@@ -33,11 +31,11 @@ type etcd struct {
 	val    string
 	lease  clientv3.LeaseID
 	client *clientv3.Client
+	quit   chan struct{}
+	config *Config
 
 	services map[string]*etcdService
 	sync.RWMutex
-	quit   chan struct{}
-	config *Config
 }
 
 func (this *etcd) Endpoints() []string {
@@ -60,6 +58,12 @@ func (this *etcd) Register(key, val string) error {
 	}
 
 	return this.keepAlive()
+}
+
+func (this *etcd) Deregister(_ string) error {
+	key := fmt.Sprintf("%s:%s:%d", this.prefix, this.key, this.lease)
+	_, err := this.client.Delete(context.Background(), key)
+	return err
 }
 
 func (this *etcd) Service(key string) RegService {
@@ -93,7 +97,6 @@ func (this *etcd) init(conf *Config) (err error) {
 		Password:    conf.SecretKey,
 		DialTimeout: 3 * time.Second,
 	}
-	this.quit = make(chan struct{})
 
 	this.client, err = clientv3.New(config)
 	return err
@@ -164,7 +167,7 @@ func (this *etcdService) Addrs() ([]string, error) {
 	revision, addrs := this.revision, this.values
 	this.RUnlock()
 
-	if revision != 0 {
+	if revision != 0 && len(addrs) != 0 {
 		return lo.Values(addrs), nil
 	}
 
@@ -193,15 +196,15 @@ func (this *etcdService) load() (map[string]string, error) {
 		return nil, err
 	}
 
-	values := map[string]string{}
+	addrs := map[string]string{}
 	for _, kv := range resp.Kvs {
-		values[string(kv.Key)] = string(kv.Value)
+		addrs[string(kv.Key)] = string(kv.Value)
 	}
 
 	this.Lock()
-	this.revision, this.values = resp.Header.Revision, values
+	this.revision, this.values = resp.Header.Revision, addrs
 	this.Unlock()
-	return values, nil
+	return addrs, nil
 }
 
 func (this *etcdService) watch() error {
@@ -239,7 +242,7 @@ func (this *etcdService) processEvents(events []*clientv3.Event) {
 			delete(this.values, string(ev.Kv.Key))
 			this.Unlock()
 		default:
-			log.Println("unknown etcd watch event type", ev.Type)
+			glog.Errorf("unknown etcd watch event type:%v", ev.Type)
 		}
 	}
 

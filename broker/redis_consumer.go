@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -14,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
 )
@@ -262,7 +262,7 @@ func (this *redisConsumer) claimStream(stream string) {
 			Count:  int64(DefaultBufferSize - len(this.queue)),
 		}).Result()
 		if err != nil && err != redis.Nil {
-			log.Println("redis stream list pending messages", err)
+			glog.Errorf("redis stream list pending messages err:%v", err)
 			break
 		}
 		if len(pendings) == 0 {
@@ -282,12 +282,12 @@ func (this *redisConsumer) claimStream(stream string) {
 				Messages: []string{pending.ID},
 			}).Result()
 			if err != nil && err != redis.Nil {
-				log.Println("redis stream claim", err)
+				glog.Errorf("redis stream claim err:%v", err)
 				break
 			}
 			if err == redis.Nil {
 				if err := this.client.XAck(context.Background(), stream, this.groupId, pending.ID).Err(); err != nil {
-					log.Println("redis stream claim ack", err)
+					glog.Errorf("redis stream claim ack err:%v", err)
 					continue
 				}
 			}
@@ -295,7 +295,7 @@ func (this *redisConsumer) claimStream(stream string) {
 			if pending.RetryCount > int64(DefaultMaxRetryCount) {
 				for _, msg := range claimMsgs {
 					if err := this.client.XAck(context.Background(), stream, this.groupId, msg.ID).Err(); err != nil {
-						log.Println("redis stream ack retry count gt N", err)
+						glog.Errorf("redis stream ack retry count gt N err:%v", err)
 						continue
 					}
 				}
@@ -306,7 +306,7 @@ func (this *redisConsumer) claimStream(stream string) {
 
 		next, err := nextMessageID(pendings[len(pendings)-1].ID)
 		if err != nil {
-			log.Println("redis stream calc next msg id", err)
+			glog.Errorf("redis stream calc next msg id err:%v", err)
 			break
 		}
 		start = next
@@ -343,7 +343,7 @@ func (this *redisConsumer) repostDelay(stream string) {
 		vals, err := zrangeScript.Run(context.Background(), this.client,
 			[]string{fmt.Sprintf(zsetFormat, stream)}, fmt.Sprintf("%d", time.Now().Unix())).StringSlice()
 		if err != nil && err != redis.Nil {
-			log.Println("redis stream zrange delay messages", err)
+			glog.Errorf("redis stream zrange delay messages err:%v", err)
 			break
 		}
 		if len(vals) == 0 {
@@ -372,7 +372,7 @@ func (this *redisConsumer) repostDelay(stream string) {
 				MaxLen: this.StreamMaxLength,
 				Values: values,
 			}).Result(); err != nil {
-				log.Println("redis stream xadd delay msg", err)
+				glog.Errorf("redis stream xadd delay msg err:%v", err)
 			}
 		}
 	}

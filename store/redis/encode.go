@@ -8,7 +8,7 @@ import (
 	"time"
 	"unsafe"
 
-	"lego/encoding/json"
+	"github.com/joshqu1985/lego/encoding/json"
 )
 
 func Format(v any) ([]byte, error) {

@@ -3,10 +3,10 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"log"
 	"runtime"
 	"time"
 
+	"github.com/golang/glog"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -21,7 +21,7 @@ func (this *Store) Exec(ctx context.Context, fn func(*DB) error) error {
 
 	err := fn(this.db)
 
-	log.Println(runtime.FuncForPC(stacks[0]).Name())
+	glog.Info(runtime.FuncForPC(stacks[0]).Name())
 	return err
 }
 
@@ -31,7 +31,7 @@ func (this *Store) Transaction(ctx context.Context, fn func(*DB) error) error {
 
 	err := this.db.Transaction(fn)
 
-	log.Println(runtime.FuncForPC(stacks[0]).Name())
+	glog.Info(runtime.FuncForPC(stacks[0]).Name())
 	return err
 }
 

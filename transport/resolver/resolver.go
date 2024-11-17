@@ -6,13 +6,17 @@ import (
 
 	"google.golang.org/grpc/resolver"
 
-	"lego/transport/naming"
+	"github.com/joshqu1985/lego/transport/naming"
 )
 
 func New(n naming.Naming) (resolver.Builder, error) {
 	switch n.Name() {
 	case "etcd":
 		return newEtcd(n)
+	case "nacos":
+		return newNacos(n)
+	case "pass":
+		return newPass(n)
 	}
 	return nil, fmt.Errorf("unsupported naming: %s", n.Name())
 }

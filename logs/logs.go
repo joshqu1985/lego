@@ -38,35 +38,35 @@ func InitData(opts ...Option) {
 // Debugt 打印Debug日志 通过context打印trace id
 func Debugt(ctx context.Context, msg string, kv ...any) {
 	args := make([]any, 0, len(kv)+2)
-	args = append(args, "TRACEID", GetTraceID(ctx))
+	args = append(args, "TRACE-ID", GetTraceID(ctx))
 	logger.Debugw(msg, append(args, kv...)...)
 }
 
 // Infot 打印Info日志 通过context打印trace id
 func Infot(ctx context.Context, msg string, kv ...any) {
 	args := make([]any, 0, len(kv)+2)
-	args = append(args, "TRACEID", GetTraceID(ctx))
+	args = append(args, "TRACE-ID", GetTraceID(ctx))
 	logger.Infow(msg, append(args, kv...)...)
 }
 
 // Warnt 打印Warn日志 通过context打印trace id
 func Warnt(ctx context.Context, msg string, kv ...any) {
 	args := make([]any, 0, len(kv)+2)
-	args = append(args, "TRACEID", GetTraceID(ctx))
+	args = append(args, "TRACE-ID", GetTraceID(ctx))
 	logger.Warnw(msg, append(args, kv...)...)
 }
 
 // Errort 打印Error日志 通过context打印trace id
 func Errort(ctx context.Context, msg string, kv ...any) {
 	args := make([]any, 0, len(kv)+2)
-	args = append(args, "TRACEID", GetTraceID(ctx))
+	args = append(args, "TRACE-ID", GetTraceID(ctx))
 	logger.Errorw(msg, append(args, kv...)...)
 }
 
 // Fatalt 打印Fatal日志 通过context打印trace id
 func Fatalt(ctx context.Context, msg string, kv ...any) {
 	args := make([]any, 0, len(kv)+2)
-	args = append(args, "TRACEID", GetTraceID(ctx))
+	args = append(args, "TRACE-ID", GetTraceID(ctx))
 	logger.Fatalw(msg, append(args, kv...)...)
 }
 

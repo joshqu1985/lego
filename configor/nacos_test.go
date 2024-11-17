@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"lego/encoding"
+	"github.com/joshqu1985/lego/encoding"
 )
 
 type TestNacosData struct {

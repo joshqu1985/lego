@@ -3,9 +3,9 @@ package broker
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 
+	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
 
@@ -70,7 +70,7 @@ func (this *memoryConsumer) work(topic string, f ConsumeCallback) {
 		select {
 		case msg := <-recv:
 			if err := this.process(&msg, f); err != nil {
-				log.Println("mem queue process", err)
+				glog.Errorf("mem queue process err:%v", err)
 				continue
 			}
 		case <-this.stopWork:

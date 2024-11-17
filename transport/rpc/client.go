@@ -1,13 +1,12 @@
 package rpc
 
 import (
-	"fmt"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	gresolver "google.golang.org/grpc/resolver"
 
-	"lego/transport/resolver"
+	"github.com/joshqu1985/lego/transport/naming"
+	"github.com/joshqu1985/lego/transport/resolver"
 )
 
 type Client struct {
@@ -17,14 +16,14 @@ type Client struct {
 	builder gresolver.Builder
 }
 
-func NewClient(opts ...Option) (*Client, error) {
+func NewClient(target string, opts ...Option) (*Client, error) {
 	var option options
 	for _, opt := range opts {
 		opt(&option)
 	}
 
 	if option.Naming == nil {
-		return nil, fmt.Errorf("naming is nil")
+		option.Naming = naming.NewPass(&naming.Config{})
 	}
 
 	builder, err := resolver.New(option.Naming)
@@ -32,7 +31,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		return nil, err
 	}
 	client := &Client{
-		target:  resolver.BuildTarget(option.Naming, option.Target),
+		target:  resolver.BuildTarget(option.Naming, target),
 		builder: builder,
 	}
 
@@ -53,7 +52,8 @@ func (this *Client) Target() string {
 func (this *Client) dial() error {
 	conn, err := grpc.NewClient(this.target,
 		grpc.WithResolvers(this.builder),
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`))
 	if err != nil {
 		return err
 	}

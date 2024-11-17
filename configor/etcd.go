@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang/glog"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -97,7 +97,7 @@ func (this *etcdConfig) run(ch clientv3.WatchChan) {
 			}
 			data, err := this.read()
 			if err != nil {
-				log.Println("etcd config read err:", err)
+				glog.Errorf("etcd config read err:%v", err)
 				continue
 			}
 			this.opts.WatchChange(data)

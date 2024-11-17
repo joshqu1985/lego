@@ -71,13 +71,11 @@ func (this *nacosConfig) watch() error {
 		return nil
 	}
 
-	err := this.client.ListenConfig(vo.ConfigParam{
+	return this.client.ListenConfig(vo.ConfigParam{
 		DataId:   this.conf.AppId,
 		Group:    defaultGroup,
 		OnChange: this.callback,
 	})
-
-	return err
 }
 
 func (this *nacosConfig) callback(_, _, _, value string) {
@@ -94,7 +92,7 @@ func (this *nacosConfig) callback(_, _, _, value string) {
 }
 
 func (this *nacosConfig) init(conf *SourceConfig) (err error) {
-	clientConfig := constant.NewClientConfig(
+	clientConfig := *constant.NewClientConfig(
 		constant.WithNamespaceId(conf.Cluster),
 		constant.WithNotLoadCacheAtStart(true),
 	)
@@ -104,19 +102,18 @@ func (this *nacosConfig) init(conf *SourceConfig) (err error) {
 		if err != nil {
 			return err
 		}
-
-		p, err := strconv.ParseUint(port, 10, 64)
+		iport, err := strconv.ParseUint(port, 10, 64)
 		if err != nil {
 			return err
 		}
 
 		serverConfigs = append(serverConfigs, constant.ServerConfig{
 			IpAddr: host,
-			Port:   p,
+			Port:   iport,
 		})
 	}
 	this.client, err = clients.NewConfigClient(vo.NacosClientParam{
-		ClientConfig:  clientConfig,
+		ClientConfig:  &clientConfig,
 		ServerConfigs: serverConfigs,
 	})
 	return err

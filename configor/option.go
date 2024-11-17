@@ -1,7 +1,7 @@
 package configor
 
 import (
-	"lego/encoding"
+	"github.com/joshqu1985/lego/encoding"
 )
 
 type ChangeNotify func(ChangeSet)

@@ -1,12 +1,12 @@
 package resolver
 
 import (
-	"log"
-	"strings"
+	"path"
 
+	"github.com/golang/glog"
 	"google.golang.org/grpc/resolver"
 
-	"lego/transport/naming"
+	"github.com/joshqu1985/lego/transport/naming"
 )
 
 func newEtcd(n naming.Naming) (resolver.Builder, error) {
@@ -15,19 +15,26 @@ func newEtcd(n naming.Naming) (resolver.Builder, error) {
 	}, nil
 }
 
+type etcdBuilder struct {
+	naming naming.Naming
+}
+
+func (this *etcdBuilder) Scheme() string {
+	return this.naming.Name()
+}
+
 func (this *etcdBuilder) Build(target resolver.Target, cc resolver.ClientConn,
 	_ resolver.BuildOptions) (resolver.Resolver, error) {
 
-	service := this.naming.Service(strings.Trim(target.URL.Path, "/"))
-	_, err := service.Addrs()
-	if err != nil {
+	service := this.naming.Service(path.Base(target.URL.Path))
+	if _, err := service.Addrs(); err != nil {
 		return nil, err
 	}
 
 	f := func() {
 		values, err := service.Addrs()
 		if err != nil {
-			log.Println("naming addrs err:", err)
+			glog.Errorf("naming addrs err:%v", err)
 			return
 		}
 
@@ -39,19 +46,11 @@ func (this *etcdBuilder) Build(target resolver.Target, cc resolver.ClientConn,
 		if err := cc.UpdateState(resolver.State{
 			Addresses: addrs,
 		}); err != nil {
-			log.Println("update grpc ClientConn state err:", err)
+			glog.Errorf("update grpc ClientConn state err:%v", err)
 		}
 	}
 	service.AddListener(f)
 	f()
 
 	return &nopResolver{cc: cc}, nil
-}
-
-func (this *etcdBuilder) Scheme() string {
-	return this.naming.Name()
-}
-
-type etcdBuilder struct {
-	naming naming.Naming
 }

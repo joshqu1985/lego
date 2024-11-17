@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 
-	"lego/broker"
+	"github.com/joshqu1985/lego/broker"
 )
 
 // Logger 避免业务代码对zap直接依赖

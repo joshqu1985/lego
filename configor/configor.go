@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"lego/encoding"
+	"github.com/joshqu1985/lego/encoding"
 )
 
 const (
