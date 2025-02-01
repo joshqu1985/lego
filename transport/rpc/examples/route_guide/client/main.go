@@ -16,7 +16,7 @@ func init() {
 }
 
 func main() {
-	client := NewRecordRouter(naming.Get())
+	client := NewRecordRouter()
 
 	// Looking for a valid feature
 	client.PrintFeature(&pb.Point{Latitude: 409146138, Longitude: -746188906})

@@ -16,7 +16,7 @@ type Linked struct {
 	head *Node
 	tail *Node
 	size int
-	lock sync.RWMutex
+	sync.RWMutex
 }
 
 // NewLinked 初始化链表
@@ -30,8 +30,8 @@ func NewLinked() *Linked {
 
 // Get 获取队首元素
 func (this *Linked) Get() (any, error) {
-	this.lock.Lock()
-	defer this.lock.Unlock()
+	this.Lock()
+	defer this.Unlock()
 
 	if this.size == 0 {
 		return nil, fmt.Errorf("queue empty")
@@ -49,22 +49,22 @@ func (this *Linked) Get() (any, error) {
 
 // Put 插入数据到队列尾部
 func (this *Linked) Put(e any) {
-	this.lock.Lock()
-	defer this.lock.Unlock()
+	this.Lock()
+	defer this.Unlock()
 
 	this.put(e)
 }
 
 func (this *Linked) Size() int {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
+	this.RLock()
+	defer this.RUnlock()
 
 	return this.size
 }
 
 func (this *Linked) IsEmpty() bool {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
+	this.RLock()
+	defer this.RUnlock()
 
 	return this.size == 0
 }

@@ -3,10 +3,9 @@ package mysql
 import (
 	"context"
 	"fmt"
-	"runtime"
+	"log"
 	"time"
 
-	"github.com/golang/glog"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -16,22 +15,14 @@ type Store struct {
 }
 
 func (this *Store) Exec(ctx context.Context, fn func(*DB) error) error {
-	stacks := make([]uintptr, 1)
-	runtime.Callers(2, stacks)
-
 	err := fn(this.db)
 
-	glog.Info(runtime.FuncForPC(stacks[0]).Name())
 	return err
 }
 
 func (this *Store) Transaction(ctx context.Context, fn func(*DB) error) error {
-	stacks := make([]uintptr, 1)
-	runtime.Callers(2, stacks)
-
 	err := this.db.Transaction(fn)
 
-	glog.Info(runtime.FuncForPC(stacks[0]).Name())
 	return err
 }
 
@@ -49,13 +40,13 @@ func (this *Store) Commit() *DB {
 
 // Config mysql配置
 type Config struct {
-	Endpoint string `toml:"endpoint" yaml:"endpoint" json:"endpoint"`
-	Auth     string `toml:"auth" yaml:"auth" json:"auth"`
-	Opts     string `toml:"opts" yaml:"opts" json:"opts"`
-	Database string `toml:"database" yaml:"database" json:"database"`
-	MaxIdle  int    `toml:"max_idle" yaml:"max_idle" json:"max_idle"`
-	MaxOpen  int    `toml:"max_open" yaml:"max_open" json:"max_open"`
-	MaxLife  int    `toml:"max_life" yaml:"max_life" json:"max_life"`
+	Endpoint     string `toml:"endpoint" yaml:"endpoint" json:"endpoint"`
+	Auth         string `toml:"auth" yaml:"auth" json:"auth"`
+	Opts         string `toml:"opts" yaml:"opts" json:"opts"`
+	Database     string `toml:"database" yaml:"database" json:"database"`
+	MaxOpenConns int    `toml:"max_open_conns" yaml:"max_open_conns" json:"max_open_conns"`
+	MaxIdleConns int    `toml:"max_idle_conns" yaml:"max_idle_conns" json:"max_idle_conns"`
+	MaxLife      int    `toml:"max_life" yaml:"max_life" json:"max_life"` // ms
 }
 
 // New 初始化mysql连接池
@@ -68,7 +59,7 @@ func New(conf Config) *Store {
 		panic(err)
 	}
 
-	fmt.Printf("mysql init host:%s finish\n", conf.Endpoint)
+	log.Printf("mysql init host:%s finish\n", conf.Endpoint)
 	return store
 }
 
@@ -91,11 +82,10 @@ func connect(conf Config) (*DB, error) {
 		return nil, err
 	}
 
-	conn.SetMaxIdleConns(conf.MaxIdle)
-	conn.SetMaxOpenConns(conf.MaxOpen)
+	conn.SetMaxIdleConns(conf.MaxIdleConns)
+	conn.SetMaxOpenConns(conf.MaxOpenConns)
 	if conf.MaxLife != 0 {
 		conn.SetConnMaxLifetime(time.Duration(conf.MaxLife) * time.Millisecond)
 	}
-
 	return db, nil
 }

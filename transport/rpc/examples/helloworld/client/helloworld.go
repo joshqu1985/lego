@@ -10,16 +10,13 @@ import (
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/helloworld/helloworld"
 )
 
-func NewHelloworldClient(n naming.Naming) *Helloworld {
-	c, err := rpc.NewClient("helloworld", rpc.WithNaming(n))
+func NewHelloworld() *Helloworld {
+	c, err := rpc.NewClient("helloworld", rpc.WithNaming(naming.Get()))
 	if err != nil {
 		log.Fatalf("rpc.NewClient failed: %v", err)
 		return nil
 	}
-
-	return &Helloworld{
-		client: pb.NewGreeterClient(c.Conn()),
-	}
+	return &Helloworld{client: pb.NewGreeterClient(c.Conn())}
 }
 
 type Helloworld struct {
@@ -32,7 +29,7 @@ func (this *Helloworld) SayHello(ctx context.Context, in *pb.HelloRequest) (*pb.
 
 	resp, err := this.client.SayHello(ctx, &pb.HelloRequest{Name: "world"})
 	if err != nil {
-		log.Fatalf("could not greet: %v", err)
+		log.Printf("could not greet: %v", err)
 		return resp, err
 	}
 

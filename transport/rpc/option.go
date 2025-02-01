@@ -1,30 +1,35 @@
 package rpc
 
 import (
+	"time"
+
 	"google.golang.org/grpc"
 
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
 type (
-	HandlersRegister func(*grpc.Server)
+	RouterRegister func(*grpc.Server)
 
 	Option func(o *options)
 )
 
 type options struct {
 	// Timeout
-	Timeout int64
+	Timeout time.Duration
 
 	// Naming
 	Naming naming.Naming
 
-	// HandlersRegister
-	HandlersRegister HandlersRegister
+	// RouterRegister
+	RouterRegister RouterRegister
+
+	// Metrics
+	Metrics bool
 }
 
 // WithTimeout set timeout.
-func WithTimeout(timeout int64) Option {
+func WithTimeout(timeout time.Duration) Option {
 	return func(o *options) {
 		o.Timeout = timeout
 	}
@@ -37,8 +42,16 @@ func WithNaming(n naming.Naming) Option {
 	}
 }
 
-func WithHandlers(f HandlersRegister) Option {
+// WithRouters register grpc handler.
+func WithRouters(f RouterRegister) Option {
 	return func(o *options) {
-		o.HandlersRegister = f
+		o.RouterRegister = f
+	}
+}
+
+// WithMetrics set metrics open.
+func WithMetrics() Option {
+	return func(o *options) {
+		o.Metrics = true
 	}
 }

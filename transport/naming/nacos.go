@@ -73,19 +73,23 @@ func (this *nacos) Deregister(_ string) error {
 }
 
 func (this *nacos) Service(key string) RegService {
-	this.RLock()
-	defer this.RUnlock()
+	this.Lock()
+	defer this.Unlock()
 
 	service, ok := this.services[key]
 	if ok {
 		return service
 	}
 
-	this.services[key] = &nacosService{
+	service = &nacosService{
 		key:    key,
 		client: this.client,
 	}
-	return this.services[key]
+	go func() { _ = service.Watch() }()
+
+	this.services[key] = service
+
+	return service
 }
 
 func (this *nacos) Close() {
@@ -98,6 +102,8 @@ func (this *nacos) init(conf *Config) (err error) {
 	clientConfig := *constant.NewClientConfig(
 		constant.WithNamespaceId(conf.Cluster),
 		constant.WithNotLoadCacheAtStart(true),
+		constant.WithLogDir("/tmp/nacos/log"),
+		constant.WithCacheDir("/tmp/nacos/cache"),
 	)
 	serverConfigs := make([]constant.ServerConfig, 0)
 	for _, endpoint := range conf.Endpoints {
@@ -180,7 +186,6 @@ func (this *nacosService) Addrs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	go func() { this.watch() }()
 
 	return lo.Values(addrs), nil
 }
@@ -213,7 +218,7 @@ func (this *nacosService) load() (map[string]string, error) {
 	return addrs, nil
 }
 
-func (this *nacosService) watch() error {
+func (this *nacosService) Watch() error {
 	param := &vo.SubscribeParam{
 		ServiceName:       this.key,
 		SubscribeCallback: this.processEvents,

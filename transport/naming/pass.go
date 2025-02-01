@@ -23,5 +23,20 @@ func (this *pass) Deregister(key string) error {
 }
 
 func (this *pass) Service(key string) RegService {
-	return nil
+	return &passService{key: key}
+}
+
+type passService struct {
+	key string
+}
+
+func (this *passService) Name() string {
+	return this.key
+}
+
+func (this *passService) Addrs() ([]string, error) {
+	return []string{this.key}, nil
+}
+
+func (this *passService) AddListener(f func()) {
 }

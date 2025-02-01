@@ -12,8 +12,8 @@ import (
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/route_guide/routeguide"
 )
 
-func NewRecordRouter(n naming.Naming) *RecordRouter {
-	c, err := rpc.NewClient("route_guide", rpc.WithNaming(n))
+func NewRecordRouter() *RecordRouter {
+	c, err := rpc.NewClient("route_guide", rpc.WithNaming(naming.Get()))
 	if err != nil {
 		log.Fatalf("rpc.NewClient failed: %v", err)
 		return nil

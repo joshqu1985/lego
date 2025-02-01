@@ -21,7 +21,6 @@ func NewEtcd(conf *Config) (Naming, error) {
 
 	// etcd前缀 discovery:${conf.Cluster}:
 	c.prefix = strings.Join([]string{"naming", conf.Cluster}, ":")
-
 	return c, c.init(conf)
 }
 
@@ -67,20 +66,23 @@ func (this *etcd) Deregister(_ string) error {
 }
 
 func (this *etcd) Service(key string) RegService {
-	this.RLock()
-	defer this.RUnlock()
+	this.Lock()
+	defer this.Unlock()
 
 	service, ok := this.services[key]
 	if ok {
 		return service
 	}
 
-	this.services[key] = &etcdService{
+	service = &etcdService{
 		prefix: this.prefix,
 		key:    key,
 		client: this.client,
 	}
-	return this.services[key]
+	go func() { _ = service.Watch() }()
+
+	this.services[key] = service
+	return service
 }
 
 func (this *etcd) Close() {
@@ -103,14 +105,17 @@ func (this *etcd) init(conf *Config) (err error) {
 }
 
 func (this *etcd) register() error {
-	resp, err := this.client.Grant(context.Background(), 10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(3)*time.Second)
+	defer cancel()
+
+	resp, err := this.client.Grant(ctx, 10)
 	if err != nil {
 		return err
 	}
 	this.lease = resp.ID
 
 	key := fmt.Sprintf("%s:%s:%d", this.prefix, this.key, this.lease)
-	_, err = this.client.Put(context.Background(), key, this.val,
+	_, err = this.client.Put(ctx, key, this.val,
 		clientv3.WithLease(this.lease))
 	return err
 }
@@ -175,8 +180,6 @@ func (this *etcdService) Addrs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	go func() { this.watch() }()
-
 	return lo.Values(addrs), nil
 }
 
@@ -187,7 +190,7 @@ func (this *etcdService) AddListener(f func()) {
 }
 
 func (this *etcdService) load() (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(3)*time.Second)
 	defer cancel()
 
 	key := fmt.Sprintf("%s:%s:", this.prefix, this.key)
@@ -207,7 +210,7 @@ func (this *etcdService) load() (map[string]string, error) {
 	return addrs, nil
 }
 
-func (this *etcdService) watch() error {
+func (this *etcdService) Watch() error {
 	key := fmt.Sprintf("%s:%s:", this.prefix, this.key)
 	watchCh := this.client.Watcher.Watch(context.Background(), key,
 		clientv3.WithPrefix(), clientv3.WithRev(this.revision+1))

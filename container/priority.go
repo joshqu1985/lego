@@ -9,7 +9,7 @@ import (
 // Priority 优先级队列
 type Priority struct {
 	Heap *Heap
-	lock sync.RWMutex
+	sync.RWMutex
 }
 
 // NewPriority 初始化优先级队列
@@ -24,16 +24,16 @@ func NewPriority() *Priority {
 
 // Put 插入数据 score小的优先
 func (this *Priority) Put(data any, score int64) {
-	this.lock.Lock()
-	defer this.lock.Unlock()
+	this.Lock()
+	defer this.Unlock()
 
 	heap.Push(this.Heap, &heapNode{Value: data, Score: score})
 }
 
 // Get 获取优先级最高的(score最小)数据
 func (this *Priority) Get() (any, error) {
-	this.lock.Lock()
-	defer this.lock.Unlock()
+	this.Lock()
+	defer this.Unlock()
 
 	if this.Heap.Len() == 0 {
 		return nil, fmt.Errorf("queue empty")
@@ -45,8 +45,8 @@ func (this *Priority) Get() (any, error) {
 }
 
 func (this *Priority) Top() (any, int64, error) {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
+	this.RLock()
+	defer this.RUnlock()
 
 	if this.Heap.Len() == 0 {
 		return nil, 0, fmt.Errorf("queue empty")
@@ -57,15 +57,15 @@ func (this *Priority) Top() (any, int64, error) {
 }
 
 func (this *Priority) IsEmpty() bool {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
+	this.RLock()
+	defer this.RUnlock()
 
 	return this.Heap.Len() == 0
 }
 
 func (this *Priority) Size() int {
-	this.lock.RLock()
-	defer this.lock.RUnlock()
+	this.RLock()
+	defer this.RUnlock()
 
 	return this.Heap.Len()
 }

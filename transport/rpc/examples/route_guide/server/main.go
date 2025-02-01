@@ -3,11 +3,8 @@ package main
 import (
 	"log"
 
-	"google.golang.org/grpc"
-
 	"github.com/joshqu1985/lego/transport/naming"
 	"github.com/joshqu1985/lego/transport/rpc"
-	pb "github.com/joshqu1985/lego/transport/rpc/examples/route_guide/routeguide"
 )
 
 func init() {
@@ -21,17 +18,11 @@ func init() {
 }
 
 func main() {
-	config := rpc.Config{
-		Name: "route_guide",
-		Addr: "127.0.0.1:50053",
-	}
+	name := "route_guide"
+	addr := "127.0.0.1:50053"
 
-	handlers := func(s *grpc.Server) {
-		pb.RegisterRouteGuideServer(s, NewRouteGuide())
-	}
-
-	s, err := rpc.NewServer(config, rpc.WithNaming(naming.Get()),
-		rpc.WithHandlers(handlers))
+	s, err := rpc.NewServer(name, addr, rpc.WithNaming(naming.Get()),
+		rpc.WithRouters(RouterRegister), rpc.WithMetrics())
 	if err != nil {
 		log.Fatalf("new rpc server err:%v", err)
 		return

@@ -9,7 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/joshqu1985/lego/container"
-	"github.com/joshqu1985/lego/utils"
+	"github.com/joshqu1985/lego/utils/utime"
 )
 
 func NewMemoryProducer(conf Config) (Producer, error) {
@@ -96,7 +96,7 @@ func (this *memoryBroker) run() {
 func (this *memoryBroker) fetchWorker(topic string, queue *TopicQueue) {
 	attempt := 0
 	for {
-		utils.Sleep(utils.Backoff(attempt, 100*time.Millisecond, 1*time.Second))
+		utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
 
 		sublist, err := this.getSubscribers(topic)
 		if err != nil {
@@ -126,7 +126,7 @@ func (this *memoryBroker) fetchWorker(topic string, queue *TopicQueue) {
 func (this *memoryBroker) delayWorker(queue *TopicQueue) {
 	attempt := 0
 	for {
-		utils.Sleep(utils.Backoff(attempt, 100*time.Millisecond, 1*time.Second))
+		utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
 
 		msg, score, err := queue.priority.Top()
 		if err != nil {
@@ -229,4 +229,12 @@ type Subscriber struct {
 type TopicQueue struct {
 	linked   *container.Linked
 	priority *container.Priority
+}
+
+func backoff(attempt int, min time.Duration, max time.Duration) time.Duration {
+	d := time.Duration(attempt*attempt) * min
+	if d > max {
+		d = max
+	}
+	return d
 }

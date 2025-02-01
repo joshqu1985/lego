@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"log"
-	"time"
+	// "log"
+	// "time"
 
 	"github.com/joshqu1985/lego/transport/naming"
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/helloworld/helloworld"
@@ -20,12 +20,12 @@ func init() {
 }
 
 func main() {
-	client := NewHelloworldClient(naming.Get())
+	client := NewHelloworld()
 
-	for i := 0; i < 20; i++ {
-		resp, err := client.SayHello(context.Background(), &pb.HelloRequest{Name: "world"})
-		log.Printf("Greeting: resp:%s err:%v", resp.GetMessage(), err)
+	for i := 0; i < 20000000; i++ {
+		_, _ = client.SayHello(context.Background(), &pb.HelloRequest{Name: "world"})
+		// log.Printf("Greeting: resp:%s err:%v", resp.GetMessage(), err)
 
-		time.Sleep(time.Millisecond * 500)
+		// time.Sleep(time.Millisecond * 500)
 	}
 }
