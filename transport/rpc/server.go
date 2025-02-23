@@ -100,7 +100,7 @@ func (this *Server) httpServe(addr string) error {
 	endpoint := fmt.Sprintf("%s:%d", host, iport+1) // 端口+1
 
 	if this.option.Metrics {
-		metrics.ServeHandle()
+		metrics.ServeHTTP()
 	}
 	this.HealthServeHandle()
 

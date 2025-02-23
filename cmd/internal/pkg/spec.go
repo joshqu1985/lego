@@ -9,6 +9,7 @@ type ParseTopContext interface {
 }
 
 type Tree struct {
+	Package  string
 	Imports  []string
 	Options  map[string]string
 	Enums    []*EnumNode
@@ -43,11 +44,13 @@ type EnumField struct {
 }
 
 type StructField struct {
-	Repeated bool
-	Name     string
-	Type     string
-	Tag      string
-	Comment  string
+	Repeated   bool
+	Name       string
+	Type       string
+	Tag        string
+	Comment    string
+	TypeObject bool
+	TypeName   string
 }
 
 type StructMap struct {

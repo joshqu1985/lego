@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-func TestRocketBroker(t *testing.T) {
-	consumer, err := NewRocketConsumer(Config{
-		Endpoints: []string{"localhost:8081"},
+func TestPulsarBroker(t *testing.T) {
+	consumer, err := NewPulsarConsumer(Config{
+		Endpoints: []string{"pulsar://localhost:6650"},
 		GroupId:   "g1",
-		Topics:    map[string]string{"test": "test"},
+		Topics:    map[string]string{"test": "persistent://public/default/test"},
 		AppId:     "",
 	})
 	if err != nil {
@@ -25,9 +25,9 @@ func TestRocketBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, err := NewRocketProducer(Config{
-		Endpoints: []string{"localhost:8081"},
-		Topics:    map[string]string{"test": "test"},
+	producer, err := NewPulsarProducer(Config{
+		Endpoints: []string{"pulsar://localhost:6650"},
+		Topics:    map[string]string{"test": "persistent://public/default/test"},
 	})
 	if err != nil {
 		t.Log(err)
@@ -35,7 +35,7 @@ func TestRocketBroker(t *testing.T) {
 	}
 
 	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 1"),
+		Payload: []byte("hello kitty 3"),
 	})
 	if err != nil {
 		t.Log(err)
@@ -43,7 +43,7 @@ func TestRocketBroker(t *testing.T) {
 	}
 
 	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 2"),
+		Payload: []byte("hello kitty 4"),
 	})
 	if err != nil {
 		t.Log(err)

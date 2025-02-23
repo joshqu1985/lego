@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -29,6 +28,10 @@ var (
 )
 
 func NewRedisConsumer(conf Config) (Consumer, error) {
+	if len(conf.Endpoints) == 0 {
+		return nil, fmt.Errorf("endpoints is empty")
+	}
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     conf.Endpoints[0],
 		Username: conf.AccessKey,
@@ -77,15 +80,13 @@ type redisConsumer struct {
 	Concurrency     int
 }
 
-func (this *redisConsumer) Register(topic string, f ConsumeCallback) error {
-	realTopic := ""
-	if v, ok := this.topics[topic]; !ok {
+func (this *redisConsumer) Register(topicKey string, f ConsumeCallback) error {
+	topicVal, ok := this.topics[topicKey]
+	if !ok {
 		return fmt.Errorf("topic not found")
-	} else {
-		realTopic = v
 	}
 
-	this.consumers[realTopic] = registered{callback: f, offset: "$"}
+	this.consumers[topicVal] = registered{callback: f, offset: "$"}
 	return nil
 }
 
@@ -96,8 +97,7 @@ func (this *redisConsumer) Start() error {
 
 	streams := []string{}
 	for stream, consumer := range this.consumers {
-		err := this.client.XGroupCreateMkStream(context.Background(),
-			stream, this.groupId, consumer.offset).Err()
+		err := this.client.XGroupCreateMkStream(context.Background(), stream, this.groupId, consumer.offset).Err()
 		if err != nil && err.Error() != "BUSYGROUP Consumer Group name already exists" {
 			return err
 		}
@@ -179,20 +179,16 @@ func (this *redisConsumer) xread(streams []string) {
 		case <-this.stopXread:
 			return
 		default:
-			vals, err := this.client.XReadGroup(context.Background(), &redis.XReadGroupArgs{
+			args := &redis.XReadGroupArgs{
 				Consumer: this.name,
 				Group:    this.groupId,
 				Streams:  streams,
 				Count:    int64(DefaultBufferSize - len(this.queue)),
 				Block:    DefaultBlockTimeout,
-			}).Result()
+			}
+			vals, err := this.client.XReadGroup(context.Background(), args).Result()
 			if err != nil {
-				if err, ok := err.(net.Error); ok && err.Timeout() {
-					continue
-				}
-				if err == redis.Nil {
-					continue
-				}
+				glog.Errorf("redis stream XReadGroup err:%v", err)
 				continue
 			}
 
@@ -205,11 +201,16 @@ func (this *redisConsumer) xread(streams []string) {
 
 func (this *redisConsumer) enqueue(topic string, msgs []redis.XMessage) {
 	for _, m := range msgs {
-		msg := &Message{MessageId: m.ID, Topic: topic}
+		msg := &Message{
+			Topic:     topic,
+			MessageId: m.ID,
+		}
+
 		if v, ok := m.Values["properties"]; ok {
 			data, _ := v.(string)
 			_ = json.Unmarshal([]byte(data), &msg.Properties)
 		}
+
 		if v, ok := m.Values["payload"]; ok {
 			data, _ := v.(string)
 			msg.Payload = []byte(data)

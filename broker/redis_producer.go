@@ -11,6 +11,10 @@ import (
 )
 
 func NewRedisProducer(conf Config) (Producer, error) {
+	if len(conf.Endpoints) == 0 {
+		return nil, fmt.Errorf("endpoints is empty")
+	}
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     conf.Endpoints[0],
 		Username: conf.AccessKey,
@@ -38,24 +42,28 @@ func (this *redisProducer) Send(ctx context.Context, topic string, msg *Message,
 	if msg == nil {
 		return fmt.Errorf("message is nil")
 	}
-	if v, ok := this.topics[topic]; !ok {
+
+	topicVal, ok := this.topics[topic]
+	if !ok {
 		return fmt.Errorf("topic not found")
-	} else {
-		msg.Topic = v
+	}
+	msg.Topic = topicVal
+
+	if this.CountStream(ctx, topicVal)+this.CountDelay(ctx, topicVal) > MaxMessageCount {
+		return fmt.Errorf("queue is full")
 	}
 
 	if len(args) != 0 && args[0] > time.Now().Unix() {
-		return this.sendDelay(ctx, msg, args[0])
+		return this.SendDelay(ctx, msg, args[0])
 	}
-
-	return this.sendStream(ctx, msg)
+	return this.SendStream(ctx, msg)
 }
 
 func (this *redisProducer) Close() error {
 	return nil
 }
 
-func (this *redisProducer) sendStream(ctx context.Context, msg *Message) error {
+func (this *redisProducer) SendStream(ctx context.Context, msg *Message) error {
 	values := map[string]any{"payload": msg.Payload}
 	if len(msg.Properties) != 0 {
 		data, _ := json.Marshal(&msg.Properties)
@@ -63,12 +71,17 @@ func (this *redisProducer) sendStream(ctx context.Context, msg *Message) error {
 	}
 
 	var err error
-	msg.MessageId, err = this.client.XAdd(ctx, &redis.XAddArgs{
+	args := &redis.XAddArgs{
 		Stream: msg.Topic,
 		MaxLen: this.StreamMaxLength,
 		Values: values,
-	}).Result()
+	}
+	msg.MessageId, err = this.client.XAdd(ctx, args).Result()
 	return err
+}
+
+func (this *redisProducer) CountStream(ctx context.Context, topic string) int64 {
+	return this.client.XLen(ctx, topic).Val()
 }
 
 var (
@@ -88,11 +101,12 @@ const (
 	hashFormat = "{%s_delay}.hash"
 )
 
-func (this *redisProducer) sendDelay(ctx context.Context, msg *Message, timestamp int64) error {
+func (this *redisProducer) SendDelay(ctx context.Context, msg *Message, timestamp int64) error {
+	keys := []string{fmt.Sprintf(zsetFormat, msg.Topic), fmt.Sprintf(hashFormat, msg.Topic)}
 	data, _ := json.Marshal(msg)
-	ok, err := delayScript.Run(ctx, this.client,
-		[]string{fmt.Sprintf(zsetFormat, msg.Topic), fmt.Sprintf(hashFormat, msg.Topic)},
-		xid.New().String(), data, timestamp).Bool()
+	vals := []any{xid.New().String(), data, timestamp}
+
+	ok, err := delayScript.Run(ctx, this.client, keys, vals...).Bool()
 	if err != nil {
 		return err
 	}
@@ -100,4 +114,8 @@ func (this *redisProducer) sendDelay(ctx context.Context, msg *Message, timestam
 		return fmt.Errorf("duplicate message")
 	}
 	return nil
+}
+
+func (this *redisProducer) CountDelay(ctx context.Context, topic string) int64 {
+	return this.client.ZCard(ctx, fmt.Sprintf(zsetFormat, topic)).Val()
 }

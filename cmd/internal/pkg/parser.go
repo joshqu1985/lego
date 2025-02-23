@@ -100,6 +100,9 @@ func (v *ProtoVisitor) VisitProto(ctx *g4.ProtoContext) interface{} {
 		each.Accept(v)
 	}
 
+	if packageStatement := ctx.PackageStatement(0); packageStatement != nil {
+		v.Tree.Package = packageStatement.FullIdent().GetText()
+	}
 	return &v.Tree
 }
 

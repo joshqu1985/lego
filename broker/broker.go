@@ -8,9 +8,25 @@ import (
 // Message 消息结构
 type Message struct {
 	Properties map[string]string
+	Key        string
 	Payload    []byte
 	MessageId  string // 不需要传 发送后会自动填入
 	Topic      string // 不需要传 内部使用
+}
+
+func (this *Message) SetTag(tag string) {
+	if this.Properties == nil {
+		this.Properties = make(map[string]string)
+	}
+	this.Properties["tag"] = tag
+}
+
+func (this *Message) GetTag() string {
+	tag, ok := this.Properties["tag"]
+	if !ok {
+		return ""
+	}
+	return tag
 }
 
 // Producer 生产者
@@ -27,15 +43,7 @@ type Consumer interface {
 }
 
 var (
-	MaxMessageCount = int64(500)
-)
-
-const (
-	KAFKA  = 1 // kafka
-	ROCKET = 2 // rocketmq
-	PULSAR = 3 // pulsar
-	REDIS  = 4 // redis stream
-	MEMORY = 5 // memory
+	MaxMessageCount = int64(10000)
 )
 
 // ErrUnknowType 暂时不支持的类型错误
@@ -45,20 +53,22 @@ var ErrUnknowType = errors.New("unknow broker type")
 type ConsumeCallback func(context.Context, *Message) error
 
 // NewProducer 创建Producer
-func NewProducer(broker int, conf Config) Producer {
+func NewProducer(conf Config) Producer {
 	var (
 		producer Producer
 		err      error
 	)
 
-	switch broker {
-	case KAFKA:
+	switch conf.Source {
+	case "kafka":
 		producer, err = NewKafkaProducer(conf)
-	case ROCKET:
+	case "rocketmq":
 		producer, err = NewRocketProducer(conf)
-	case REDIS:
+	case "pulsar":
+		producer, err = NewPulsarProducer(conf)
+	case "redis":
 		producer, err = NewRedisProducer(conf)
-	case MEMORY:
+	case "memory":
 		producer, err = NewMemoryProducer(conf)
 	default:
 		producer, err = nil, ErrUnknowType
@@ -71,20 +81,22 @@ func NewProducer(broker int, conf Config) Producer {
 }
 
 // NewConsumer 创建Consumer
-func NewConsumer(broker int, conf Config) Consumer {
+func NewConsumer(conf Config) Consumer {
 	var (
 		consumer Consumer
 		err      error
 	)
 
-	switch broker {
-	case KAFKA:
+	switch conf.Source {
+	case "kafka":
 		consumer, err = NewKafkaConsumer(conf)
-	case ROCKET:
+	case "rocketmq":
 		consumer, err = NewRocketConsumer(conf)
-	case REDIS:
+	case "pulsar":
+		consumer, err = NewPulsarConsumer(conf)
+	case "redis":
 		consumer, err = NewRedisConsumer(conf)
-	case MEMORY:
+	case "memory":
 		consumer, err = NewMemoryConsumer(conf)
 	default:
 		consumer, err = nil, ErrUnknowType

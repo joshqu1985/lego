@@ -116,6 +116,6 @@ func (this *Server) pprofRegister() {
 
 func (this *Server) metricRegister() {
 	if this.option.Metrics {
-		metrics.ServeGin(this.router)
+		metrics.ServeGIN(this.router)
 	}
 }

@@ -129,7 +129,7 @@ func genRpcRequest(packageName, src string, tree *pkg.Tree) (pkg.File, error) {
 	content := pkg.Print("rpc-method-head", rpcMethodHeadTpl, vars)
 
 	for _, service := range tree.Services {
-		content = content + "\n" + genRpcService(service)
+		content = content + "\n" + genRpcService(packageName, service)
 	}
 
 	code, err := format.Source([]byte(content))
@@ -198,11 +198,12 @@ func genRestService(stus map[string]*pkg.StructNode, service *pkg.ServiceNode) s
 	return pkg.Print("rest-method-body", restMethodBodyTpl, vars)
 }
 
-func genRpcService(service *pkg.ServiceNode) string {
+func genRpcService(packageName string, service *pkg.ServiceNode) string {
 	vars := &ServiceTemplateVars{
-		Document: service.Document,
-		Name:     service.Name,
-		Methods:  []*MethodTemplateVars{},
+		PackageName: packageName,
+		Document:    service.Document,
+		Name:        service.Name,
+		Methods:     []*MethodTemplateVars{},
 	}
 
 	var ok bool

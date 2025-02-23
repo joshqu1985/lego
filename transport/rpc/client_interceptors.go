@@ -56,7 +56,6 @@ var (
 	clientMetricsDuration = metrics.NewHistogram(metrics.HistogramOpt{
 		Namespace: "rpc_client",
 		Name:      "duration_ms",
-		Help:      "rpc client requests duration(ms).",
 		Labels:    []string{"method"},
 		Buckets:   []float64{3, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000},
 	})
@@ -64,7 +63,6 @@ var (
 	clientMetricsTotal = metrics.NewCounter(metrics.CounterOpt{
 		Namespace: "rpc_client",
 		Name:      "code_total",
-		Help:      "rpc client requests total.",
 		Labels:    []string{"method", "code"},
 	})
 )

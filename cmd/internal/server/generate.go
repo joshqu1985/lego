@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"go/format"
 	"path"
-	// "path/filepath"
+	"path/filepath"
 	"strings"
 
+	"github.com/codeskyblue/go-sh"
+	"github.com/golang/glog"
+	"github.com/iancoleman/strcase"
 	"github.com/joshqu1985/lego/cmd/internal/pkg"
+	"github.com/samber/lo"
 )
 
 type ServiceTemplateVars struct {
@@ -28,18 +32,48 @@ type MethodTemplateVars struct {
 	ResName     string // 出参自定义类型名
 }
 
+type Table struct {
+	Name         string
+	Comment      string
+	SingularName string    `gorm:"-"`
+	PluralName   string    `gorm:"-"`
+	Columns      []*Column `gorm:"-"`
+}
+
+type Column struct {
+	Name     string
+	DataType string
+	Tag      string
+	Comment  string
+}
+
 var (
+	//go:embed templates/http_main.tpl
+	httpMainTpl string
+
 	//go:embed templates/http_init.tpl
 	httpInitTpl string
 
 	//go:embed templates/http.tpl
 	httpTpl string
 
+	//go:embed templates/rpc_main.tpl
+	rpcMainTpl string
+
 	//go:embed templates/rpc_init.tpl
 	rpcInitTpl string
 
 	//go:embed templates/rpc.tpl
 	rpcTpl string
+
+	//go:embed templates/rpc_conv_head.tpl
+	rpcConvHeadTpl string
+
+	//go:embed templates/rpc_conv.tpl
+	rpcConvTpl string
+
+	//go:embed templates/config.tpl
+	configTpl string
 
 	//go:embed templates/model_head.tpl
 	modelHeadTpl string
@@ -50,12 +84,35 @@ var (
 	//go:embed templates/model_struct.tpl
 	modelStructTpl string
 
+	//go:embed templates/model_entity.tpl
+	modelEntityTpl string
+
 	//go:embed templates/service_init.tpl
 	serviceInitTpl string
 
 	//go:embed templates/service.tpl
 	serviceTpl string
+
+	//go:embed templates/repo_init.tpl
+	repoInitTpl string
 )
+
+func GenRestMain(name string) (pkg.File, error) {
+	vars := &ServiceTemplateVars{
+		ServerName: name,
+	}
+
+	content := pkg.Print("http-main", httpMainTpl, vars)
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+
+	return pkg.File{
+		Name: fmt.Sprintf("/%s/cmd/main.go", name),
+		Data: code,
+	}, nil
+}
 
 func GenRestApis(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
 	files := []pkg.File{}
@@ -69,6 +126,23 @@ func GenRestApis(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
 	return files, nil
 }
 
+func GenRpcMain(name string) (pkg.File, error) {
+	vars := &ServiceTemplateVars{
+		ServerName: name,
+	}
+
+	content := pkg.Print("rpc-main", rpcMainTpl, vars)
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+
+	return pkg.File{
+		Name: fmt.Sprintf("/%s/cmd/main.go", name),
+		Data: code,
+	}, nil
+}
+
 func GenRpcApis(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
 	files := []pkg.File{}
 	for _, module := range tree.Services {
@@ -79,6 +153,31 @@ func GenRpcApis(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
 		files = append(files, codes...)
 	}
 	return files, nil
+}
+
+func GenRpcProtos(name, src, dst string, tree *pkg.Tree) ([]pkg.File, error) {
+	if err := genGrpcCodes(name, src, dst); err != nil {
+		return nil, err
+	}
+
+	file, err := genGrpcConverter(name, src, tree.Structs)
+	if err != nil {
+		return nil, err
+	}
+
+	return []pkg.File{file}, nil
+}
+
+func GenConfig(name string) (pkg.File, error) {
+	content := pkg.Print("config", configTpl, nil)
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+	return pkg.File{
+		Name: fmt.Sprintf("/%s/internal/config/config.go", name),
+		Data: code,
+	}, nil
 }
 
 func GenModels(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
@@ -116,6 +215,30 @@ func GenServices(name, src string, tree *pkg.Tree) ([]pkg.File, error) {
 			return nil, err
 		}
 		files = append(files, codes...)
+	}
+	return files, nil
+}
+
+func GenRepository(name string) (pkg.File, error) {
+	content := pkg.Print("repo-init", repoInitTpl, nil)
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+	return pkg.File{
+		Name: fmt.Sprintf("/%s/internal/repo/repo.go", name),
+		Data: code,
+	}, nil
+}
+
+func GenModelEntities(name string, tables []*Table) ([]pkg.File, error) {
+	files := []pkg.File{}
+	for _, table := range tables {
+		file, err := genModelEntity(name, table)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
 	}
 	return files, nil
 }
@@ -158,10 +281,8 @@ func genRestModuleApis(serverName, src string, service *pkg.ServiceNode) ([]pkg.
 		Data: code,
 	}
 
-	value := pkg.Print("http-init-apis", httpInitTpl, vars)
 	code, err = format.Source([]byte(pkg.Print("http-init-apis", httpInitTpl, vars)))
 	if err != nil {
-		fmt.Println("-------------------2", value, err)
 		return nil, err
 	}
 	apiInitFile := pkg.File{
@@ -188,10 +309,8 @@ func genRpcModuleApis(serverName, src string, service *pkg.ServiceNode) ([]pkg.F
 		})
 	}
 
-	value := pkg.Print("rpc-apis", rpcTpl, vars)
 	code, err := format.Source([]byte(pkg.Print("rpc-apis", rpcTpl, vars)))
 	if err != nil {
-		fmt.Println("-------------------2", value, err)
 		return nil, err
 	}
 	apiFile := pkg.File{
@@ -202,7 +321,6 @@ func genRpcModuleApis(serverName, src string, service *pkg.ServiceNode) ([]pkg.F
 
 	code, err = format.Source([]byte(pkg.Print("rpc-init-apis", rpcInitTpl, vars)))
 	if err != nil {
-		fmt.Println("-------------------1", err)
 		return nil, err
 	}
 	apiInitFile := pkg.File{
@@ -210,6 +328,60 @@ func genRpcModuleApis(serverName, src string, service *pkg.ServiceNode) ([]pkg.F
 		Data: code,
 	}
 	return []pkg.File{apiFile, apiInitFile}, nil
+}
+
+func genGrpcCodes(name, src, dst string) error {
+	path := fmt.Sprintf("./%s/%s/rpcserver/", dst, name)
+	args := []any{
+		"--proto_path=" + filepath.Dir(src),
+		"--go_out=" + path,
+		"--go-grpc_out=" + path,
+		fmt.Sprintf("--go_opt=M%s=./protocols", filepath.Base(src)),
+		fmt.Sprintf("--go-grpc_opt=M%s=./protocols", filepath.Base(src)),
+		src,
+	}
+	if err := sh.Command("protoc", args...).Run(); err != nil {
+		glog.Error(args, err)
+		return err
+	}
+	return nil
+}
+
+func genGrpcConverter(name, src string, nodes []*pkg.StructNode) (pkg.File, error) {
+	vars := &ServiceTemplateVars{
+		ServerName: name,
+	}
+	content := pkg.Print("rpc-conv-head", rpcConvHeadTpl, vars)
+
+	dict := lo.SliceToMap(nodes, func(node *pkg.StructNode) (string, struct{}) {
+		return node.Name, struct{}{}
+	})
+	for _, node := range nodes {
+		for _, field := range node.Fields {
+			fieldType := strings.Trim(field.Type, "[]*")
+			if _, ok := dict[fieldType]; !ok {
+				continue
+			}
+			field.TypeObject, field.TypeName = true, fieldType
+		}
+	}
+
+	for _, node := range nodes {
+		content = content + "\n" + pkg.Print("rpc-conv", rpcConvTpl, node)
+	}
+
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+
+	file := pkg.File{
+		Name: fmt.Sprintf("/%s/rpcserver/protocols/", name) +
+			strings.Replace(path.Base(src), ".proto", "_conv.gen.go", -1),
+		Data:         code,
+		ForceReplace: true,
+	}
+	return file, nil
 }
 
 func genService(serverName, src string, service *pkg.ServiceNode) ([]pkg.File, error) {
@@ -247,4 +419,80 @@ func genService(serverName, src string, service *pkg.ServiceNode) ([]pkg.File, e
 		Data: code,
 	}
 	return []pkg.File{serviceFile, serviceInitFile}, nil
+}
+
+func genModelEntity(name string, table *Table) (pkg.File, error) {
+	hasJson := false
+	for _, column := range table.Columns {
+		if column.DataType == "json" {
+			hasJson = true
+		}
+		column.Name = strcase.ToCamel(column.Name)
+		column.DataType = switchMysqlType(column.DataType)
+		column.Tag = fmt.Sprintf("`json:\"%s\"`", strcase.ToSnake(column.Name))
+	}
+	table.SingularName = strcase.ToCamel(table.SingularName)
+
+	content := `// Code generated by lego. DO NOT EDIT.
+
+package entity
+`
+	if hasJson {
+		content += `
+
+import "gorm.io/datatypes"
+    `
+	}
+	content += pkg.Print("model-entity", modelEntityTpl, table)
+
+	code, err := format.Source([]byte(content))
+	if err != nil {
+		return pkg.File{}, err
+	}
+
+	return pkg.File{
+		Name:         fmt.Sprintf("/%s/internal/model/entity/", name) + table.Name + ".gen.go",
+		Data:         code,
+		ForceReplace: true,
+	}, nil
+}
+
+func switchMysqlType(dtype string) string {
+	gotype, ok := MysqlTypes[dtype]
+	if !ok {
+		panic("unknown mysql type")
+	}
+	return gotype
+}
+
+var MysqlTypes = map[string]string{
+	"tinyint":           "int8",
+	"tinyint unsigned":  "uint8",
+	"smallint":          "int16",
+	"smallint unsigned": "uint16",
+	"integer":           "int64",
+	"int":               "int",
+	"int unsigned":      "uint",
+	"bigint":            "int64",
+	"bigint unsigned":   "uint64",
+	"float":             "float32",
+	"float unsigned":    "float32",
+	"double":            "float64",
+	"decimal":           "float64",
+	"varchar":           "string",
+	"char":              "string",
+	"date":              "string",
+	"time":              "string",
+	"datetime":          "string",
+	"timestamp":         "string",
+	"json":              "datatypes.JSON",
+	"text":              "[]byte",
+	"tinytext":          "[]byte",
+	"mediumtext":        "[]byte",
+	"longtext":          "[]byte",
+	"blob":              "[]byte",
+	"tinyblob":          "[]byte",
+	"mediumblob":        "[]byte",
+	"longblob":          "[]byte",
+	"enum":              "string",
 }

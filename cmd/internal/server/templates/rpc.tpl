@@ -29,7 +29,7 @@ func (this *{{$.Name}}Api) {{$method.Name}}(ctx context.Context, args *pb.{{$met
   resp := &pb.{{$method.ResName}}{}
   data, err := this.{{$.Name}}.{{$method.Name}}(ctx, args.ToModel())
   if err != nil {
-    return nil, err
+		return nil, status.New(codes.Internal, err.Error()).Err()
   }
 	return resp.FromModel(data), nil
 }

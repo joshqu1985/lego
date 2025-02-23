@@ -2,6 +2,7 @@ package client
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/golang/glog"
 	"github.com/spf13/cobra"
@@ -10,68 +11,74 @@ import (
 )
 
 var (
-	FlagProtoSrc   string
-	FlagCodesDst   string
 	FlagClientType string
-	FlagPackage    string
+	FlagCodesDst   string
+	FlagProtoFile  string
 
 	Cmd = &cobra.Command{
 		Use:   "client",
 		Short: "Generate client code",
 		Run:   run,
 	}
+
+	PackageName string
 )
 
 func init() {
-	Cmd.Flags().StringVarP(&FlagProtoSrc, "src", "s", "", "proto file path")
-	Cmd.MarkFlagRequired("src")
+	Cmd.Flags().StringVarP(&FlagClientType, "type", "t", "", "client type (http、grpc)")
+	Cmd.MarkFlagRequired("type")
 
 	Cmd.Flags().StringVarP(&FlagCodesDst, "dst", "d", "", "generated codes dir")
 	Cmd.MarkFlagRequired("dst")
 
-	Cmd.Flags().StringVarP(&FlagClientType, "type", "t", "", "client type (rest、rpc)")
-	Cmd.MarkFlagRequired("type")
-
-	Cmd.Flags().StringVarP(&FlagPackage, "package", "p", "", "client package name")
-	Cmd.MarkFlagRequired("package")
+	Cmd.Flags().StringVarP(&FlagProtoFile, "proto", "", "", "proto file path")
+	Cmd.MarkFlagRequired("proto")
 }
 
 func run(_ *cobra.Command, args []string) {
-	if _, err := os.Stat(FlagCodesDst + "/" + FlagPackage); err != nil {
-		if err := pkg.Mkdir(FlagCodesDst + "/" + FlagPackage); err != nil {
-			glog.Fatal(err)
-		}
+	PackageName = filepath.Base(FlagCodesDst)
+	FlagCodesDst = filepath.Dir(FlagCodesDst)
+
+	if err := MkdirDirs(FlagCodesDst); err != nil {
+		glog.Error(err)
+		return
 	}
 
-	tree, err := pkg.Parse(FlagProtoSrc)
+	tree, err := pkg.Parse(FlagProtoFile)
 	if err != nil {
-		glog.Fatal(err)
+		glog.Error(err)
+		return
 	}
 
 	files := []pkg.File{}
-	if FlagClientType == "rest" {
-		mfile, err := genRestModel(FlagPackage, FlagProtoSrc, tree)
+	if FlagClientType == "http" {
+		if err := MkdirDirs(FlagCodesDst + "/" + PackageName); err != nil {
+			glog.Error(err)
+			return
+		}
+
+		mfile, err := genRestModel(PackageName, FlagProtoFile, tree)
 		if err != nil {
-			glog.Fatal(err)
+			glog.Error(err)
 			return
 		}
 		files = append(files, mfile)
 
-		rfile, err := genRestRequest(FlagPackage, FlagProtoSrc, tree)
+		rfile, err := genRestRequest(PackageName, FlagProtoFile, tree)
 		if err != nil {
-			glog.Fatal(err)
+			glog.Error(err)
 			return
 		}
 		files = append(files, rfile)
 	} else {
-		if err := genRpcProtoFile(FlagPackage, FlagProtoSrc, FlagCodesDst); err != nil {
-			glog.Fatal(err)
+		if err := genRpcProtoFile(PackageName, FlagProtoFile, FlagCodesDst); err != nil {
+			glog.Error(err)
 			return
 		}
 
-		file, err := genRpcRequest(FlagPackage, FlagProtoSrc, tree)
+		file, err := genRpcRequest(PackageName, FlagProtoFile, tree)
 		if err != nil {
-			glog.Fatal(err)
+			glog.Error(err)
 			return
 		}
 		files = append(files, file)
@@ -79,4 +86,11 @@ func run(_ *cobra.Command, args []string) {
 	// TODO _test.go .md
 
 	pkg.Writes(FlagCodesDst, files)
+}
+
+func MkdirDirs(dst string) error {
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+	return pkg.Mkdir(dst)
 }

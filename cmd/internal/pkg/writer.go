@@ -23,6 +23,10 @@ type File struct {
 
 func Writes(dst string, files []File) {
 	for _, file := range files {
+		if file.Name == "" {
+			continue
+		}
+
 		file.Name = dst + "/" + file.Name
 		if _, err := os.Stat(file.Name); err != nil || file.ForceReplace { // 目标文件不存在或者强制覆盖
 			if err := Write(file); err != nil {

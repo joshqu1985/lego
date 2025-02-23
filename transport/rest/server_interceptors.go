@@ -59,7 +59,6 @@ var (
 	serverMetricsDuration = metrics.NewHistogram(metrics.HistogramOpt{
 		Namespace: "http_server",
 		Name:      "duration_ms",
-		Help:      "http server requests duration(ms).",
 		Labels:    []string{"method"},
 		Buckets:   []float64{3, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000},
 	})
@@ -67,7 +66,6 @@ var (
 	serverMetricsTotal = metrics.NewCounter(metrics.CounterOpt{
 		Namespace: "http_server",
 		Name:      "code_total",
-		Help:      "http server requests total.",
 		Labels:    []string{"method", "code"},
 	})
 )

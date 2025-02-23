@@ -8,15 +8,20 @@ import (
 )
 
 // NewKafkaConsumer 创建Consumer
-func NewKafkaConsumer(conf Config) (*kafkaConsumer, error) {
-	topics := []string{}
-	for _, topic := range conf.Topics {
-		topics = append(topics, topic)
+func NewKafkaConsumer(conf Config) (Consumer, error) {
+	if len(conf.Endpoints) == 0 {
+		return nil, fmt.Errorf("endpoints is empty")
 	}
+
+	topicVals := []string{}
+	for _, topicVal := range conf.Topics {
+		topicVals = append(topicVals, topicVal)
+	}
+
 	client := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:     conf.Endpoints,
 		GroupID:     conf.GroupId,
-		GroupTopics: topics,
+		GroupTopics: topicVals,
 		StartOffset: kafka.LastOffset,
 	})
 
@@ -37,15 +42,13 @@ type kafkaConsumer struct {
 	client    *kafka.Reader
 }
 
-func (this *kafkaConsumer) Register(topic string, f ConsumeCallback) error {
-	realTopic := ""
-	if v, ok := this.topics[topic]; !ok {
+func (this *kafkaConsumer) Register(topicKey string, f ConsumeCallback) error {
+	topicVal, ok := this.topics[topicKey]
+	if !ok {
 		return fmt.Errorf("topic not found")
-	} else {
-		realTopic = v
 	}
 
-	this.callbacks[realTopic] = f
+	this.callbacks[topicVal] = f
 	return nil
 }
 

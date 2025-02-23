@@ -1,17 +1,14 @@
 package metrics
 
 import (
-	"net/http"
 	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type CounterOpt struct {
 	Namespace string
 	Name      string
-	Help      string
 	Labels    []string
 }
 
@@ -27,7 +24,6 @@ func NewCounter(opts CounterOpt) CounterVec {
 type GaugeOpt struct {
 	Namespace string
 	Name      string
-	Help      string
 	Labels    []string
 }
 
@@ -44,7 +40,6 @@ func NewGauge(opts GaugeOpt) GaugeVec {
 type HistogramOpt struct {
 	Namespace string
 	Name      string
-	Help      string
 	Labels    []string
 	Buckets   []float64
 }
@@ -66,12 +61,12 @@ func Enabled() bool {
 	return atomic.LoadInt32(&enable) == 1
 }
 
-func ServeHandle() {
-	http.Handle("/metrics", promhttp.Handler())
+func ServeHTTP() {
+	prometheusHTTP()
 	atomic.StoreInt32(&enable, 1)
 }
 
-func ServeGin(router *gin.Engine) {
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+func ServeGIN(router *gin.Engine) {
+	prometheusGIN(router)
 	atomic.StoreInt32(&enable, 1)
 }

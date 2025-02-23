@@ -1,8 +1,20 @@
 package metrics
 
 import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+func prometheusHTTP() {
+	http.Handle("/metrics", promhttp.Handler())
+}
+
+func prometheusGIN(router *gin.Engine) {
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+}
 
 type promeCounter struct {
 	counter *prometheus.CounterVec
@@ -12,7 +24,6 @@ func newPromeCounter(opts CounterOpt) CounterVec {
 	vec := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
-		Help:      opts.Help,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)
 
@@ -39,7 +50,6 @@ func newPromeGauge(opts GaugeOpt) GaugeVec {
 	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
-		Help:      opts.Help,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)
 
@@ -72,7 +82,6 @@ func newPromeHistogram(opts HistogramOpt) HistogramVec {
 	vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
-		Help:      opts.Help,
 		Buckets:   opts.Buckets,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)

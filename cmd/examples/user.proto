@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+// ------- 用于扩展option --------
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.MessageOptions {
+  string message_tag = 75000001;
+  string message_map = 75000002;
+}
+
+extend google.protobuf.MethodOptions {
+  string method_cmd = 76000001;
+  string method_uri = 76000002;
+  string method_dir = 76000003;
+}
+// --------------------------------
+
+// 用户
+service User {
+	// 验证码 - 发送
+  rpc SendCode(SendCodeArgs) returns (UserEmptyResp) {
+    option (method_cmd) = "POST";
+    option (method_uri) = "/user/code/send";
+  }
+
+	// 验证码 - 验证
+  rpc VerifyCode(VerifyCodeArgs) returns (VerifyCodeResp) {
+    option (method_cmd) = "POST";
+    option (method_uri) = "/user/code/verify";
+  }
+
+	// 用户 - 登录
+  rpc Login(LoginArgs) returns (LoginResp) {
+    option (method_cmd) = "POST";
+    option (method_uri) = "/user/login";
+  }
+}
+
+// 空参数
+message UserEmptyArgs {
+  option (message_tag) = "json";
+}
+
+// 空返回
+message UserEmptyResp {
+  option (message_tag) = "json";
+}
+
+// 发送验证码 api
+message SendCodeArgs {
+  option (message_tag) = "json";
+	string purpose = 1;           // 用途：login
+	string country_code = 2;      // 国家码
+	string phone  = 3;            // 手机号
+}
+
+// 验证验证码 api
+message VerifyCodeArgs {
+  option (message_tag) = "json";
+	string purpose = 1;      // 用途：login
+	string country_code = 2; // 国家码
+	string phone  = 3;       // 手机号
+	string code = 4;         // 验证码
+}
+
+// 验证验证码 api
+message VerifyCodeResp {
+  option (message_tag) = "json";
+	string ticket = 1;      // 凭证
+}
+
+// 登录 api
+message LoginArgs {
+  option (message_tag) = "json";
+	string country_code = 1; // 国家区号 86
+	string phone = 2;        // 手机号码
+	string code = 3;         // 验证码
+}
+
+// 登录 api
+message LoginResp {
+  option (message_tag) = "json";
+	string access_token = 1;  // 授权令牌
+	string refresh_token = 2; // 刷新令牌
+}

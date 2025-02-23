@@ -35,6 +35,10 @@ func (this *memoryProducer) Send(ctx context.Context, topic string, msg *Message
 	}
 
 	queue, _ := data.(*TopicQueue)
+	if int64(queue.priority.Size()+queue.linked.Size()) > MaxMessageCount {
+		return fmt.Errorf("queue is full")
+	}
+
 	if len(args) != 0 && args[0] > time.Now().Unix() {
 		queue.priority.Put(msg, args[0])
 	} else {

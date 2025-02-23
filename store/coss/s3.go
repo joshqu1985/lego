@@ -2,8 +2,8 @@ package coss
 
 import (
 	"context"
-	"fmt"
 	"io"
+	"os"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -14,13 +14,14 @@ import (
 )
 
 type S3Client struct {
-	client *s3.Client
-	option options
-	bucket string
+	client   *s3.Client
+	option   options
+	endpoint string
+	bucket   string
 }
 
 func newAwsClient(conf Config, option options) (*S3Client, error) {
-	creads := credentials.NewStaticCredentialsProvider(conf.AccessKey, conf.AccessSecret, "")
+	creads := credentials.NewStaticCredentialsProvider(conf.AccessId, conf.AccessSecret, "")
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithCredentialsProvider(creads))
 	if err != nil {
 		return nil, err
@@ -33,19 +34,20 @@ func newAwsClient(conf Config, option options) (*S3Client, error) {
 	})
 
 	return &S3Client{
-		client: client,
-		option: option,
-		bucket: conf.Bucket,
+		client:   client,
+		option:   option,
+		endpoint: conf.Endpoint,
+		bucket:   conf.Bucket,
 	}, nil
 }
 
-func (this *S3Client) Upload(key string, data io.Reader) (string, error) {
-	uploader := manager.NewUploader(this.client, func(u *manager.Uploader) {
-		u.PartSize = this.option.BulkSize
-	})
+func (this *S3Client) Upload(ctx context.Context, key string, data io.Reader) (string, error) {
+	mtype, err := mimetype.DetectReader(data)
+	if err != nil {
+		return "", err
+	}
 
-	mtype, _ := mimetype.DetectReader(data)
-	resp, err := uploader.Upload(context.Background(), &s3.PutObjectInput{
+	_, err = this.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:      aws.String(this.bucket),
 		Key:         aws.String(key),
 		Body:        data,
@@ -54,27 +56,62 @@ func (this *S3Client) Upload(key string, data io.Reader) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return resp.Location, nil
+	return "https://" + this.bucket + "." + this.endpoint + "/" + key, nil
 }
 
-func (this *S3Client) Download(key string, data io.Writer) error {
-	head, err := this.headObject(key)
+func (this *S3Client) Download(ctx context.Context, key string, data io.Writer) error {
+	resp, err := this.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(this.bucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
-	size := *head.ContentLength
-	for beg := int64(0); beg < size; beg += this.option.BulkSize {
-		end := beg + this.option.BulkSize - 1
-		if end >= size {
-			end = size - 1
-		}
+	_, err = io.Copy(data, resp.Body)
+	return err
+}
 
-		if err := this.getObject(key, beg, end, data); err != nil {
-			return err
-		}
+func (this *S3Client) UploadFile(ctx context.Context, key, srcfile string) (string, error) {
+	reader, err := os.Open(srcfile)
+	if err != nil {
+		return "", err
 	}
-	return nil
+
+	uploader := manager.NewUploader(this.client, func(u *manager.Uploader) {
+		u.PartSize = this.option.BulkSize
+		u.Concurrency = this.option.Concurrency
+	})
+
+	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(this.bucket),
+		Key:    aws.String(key),
+		Body:   reader,
+	})
+	if err != nil {
+		return "", err
+	}
+	return "https://" + this.bucket + "." + this.endpoint + "/" + key, nil
+}
+
+func (this *S3Client) DownloadFile(ctx context.Context, key, dstfile string) error {
+	file, err := os.Create(dstfile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	downloader := manager.NewDownloader(this.client, func(d *manager.Downloader) {
+		d.PartSize = this.option.BulkSize
+		d.Concurrency = this.option.Concurrency
+	})
+
+	_, err = downloader.Download(ctx, file, &s3.GetObjectInput{
+		Bucket: aws.String(this.bucket),
+		Key:    aws.String(key),
+	})
+	return err
 }
 
 func (this *S3Client) headObject(key string) (*s3.HeadObjectOutput, error) {
@@ -82,19 +119,4 @@ func (this *S3Client) headObject(key string) (*s3.HeadObjectOutput, error) {
 		Bucket: aws.String(this.bucket),
 		Key:    aws.String(key),
 	})
-}
-
-func (this *S3Client) getObject(key string, beg, end int64, data io.Writer) error {
-	resp, err := this.client.GetObject(context.TODO(), &s3.GetObjectInput{
-		Bucket: aws.String(this.bucket),
-		Key:    aws.String(key),
-		Range:  aws.String(fmt.Sprintf("bytes=%d-%d", beg, end)),
-	})
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.CopyN(data, resp.Body, end-beg+1)
-	return err
 }

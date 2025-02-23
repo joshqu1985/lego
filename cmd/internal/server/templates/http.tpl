@@ -29,8 +29,8 @@ type {{$.Name}}Api struct {
 {{- else -}}
 // @Param		  data	body      model.{{$method.ReqName}}				true	"data"
 {{- end}}
-// @Success		200		{object}	model.Response{data=model.{{$method.ResName}}}	"200 success"
-// @failure		500		{object}	model.Response{data=string}	""
+// @Success		200		{object}	rest.JSONResponse{data=model.{{$method.ResName}}}	"200 success"
+// @failure		500		{object}	rest.JSONResponse{data=string}	""
 // @Router		{{$method.Uri}} [{{$method.Cmd}}]
 // @Security	Bearer
 func (this *{{$.Name}}Api) {{$method.Name}}(ctx *rest.Context) *rest.JSONResponse {

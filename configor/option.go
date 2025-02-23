@@ -12,9 +12,6 @@ type options struct {
 	// Encoding
 	Encoding encoding.Encoding
 
-	// Source
-	Source int
-
 	// WatchChange
 	WatchChange ChangeNotify
 }
@@ -37,27 +34,6 @@ func WithYaml() Option {
 func WithJson() Option {
 	return func(o *options) {
 		o.Encoding = encoding.New("json")
-	}
-}
-
-// WithEtcd sets source etcd.
-func WithEtcd() Option {
-	return func(o *options) {
-		o.Source = ETCD
-	}
-}
-
-// WithApollo sets source apollo.
-func WithApollo() Option {
-	return func(o *options) {
-		o.Source = APOLLO
-	}
-}
-
-// WithNacos sets source nacos.
-func WithNacos() Option {
-	return func(o *options) {
-		o.Source = NACOS
 	}
 }
 

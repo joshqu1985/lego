@@ -11,24 +11,31 @@ import (
 )
 
 func NewRocketProducer(conf Config) (Producer, error) {
-	topics := []string{}
-	for _, val := range conf.Topics {
-		topics = append(topics, val)
+	if len(conf.Endpoints) == 0 {
+		return nil, fmt.Errorf("endpoints is empty")
 	}
-
 	os.Setenv("mq.consoleAppender.enabled", "true")
 	rocket.ResetLogger()
-	client, err := rocket.NewProducer(&rocket.Config{
+
+	topicVals := []string{}
+	for _, topicVal := range conf.Topics {
+		topicVals = append(topicVals, topicVal)
+	}
+
+	config := &rocket.Config{
 		Endpoint:      conf.Endpoints[0],
 		ConsumerGroup: conf.GroupId,
 		Credentials: &credentials.SessionCredentials{
 			AccessKey: conf.AccessKey, AccessSecret: conf.SecretKey,
 		},
 		NameSpace: conf.AppId,
-	},
-		rocket.WithTopics(topics...),
-	)
+	}
+	client, err := rocket.NewProducer(config, rocket.WithTopics(topicVals...))
 	if err != nil {
+		return nil, err
+	}
+
+	if err := client.Start(); err != nil {
 		return nil, err
 	}
 
@@ -47,26 +54,35 @@ func (this *rocketProducer) Send(ctx context.Context, topic string, msg *Message
 	if msg == nil {
 		return fmt.Errorf("message is nil")
 	}
-	realTopic, ok := this.topics[topic]
+
+	topicVal, ok := this.topics[topic]
 	if !ok {
 		return fmt.Errorf("topic not found")
 	}
 
 	data := rocket.Message{
-		Topic: realTopic,
+		Topic: topicVal,
 		Body:  msg.Payload,
 	}
+	if msg.Key != "" {
+		data.SetKeys(msg.Key)
+	}
+
 	for key, val := range msg.Properties {
 		if key == "tag" {
 			data.SetTag(val)
 		}
 		data.AddProperty(key, val)
 	}
+
 	if len(args) != 0 && args[0] > time.Now().Unix() {
 		data.SetDelayTimestamp(time.Unix(args[0], 0))
 	}
 
-	_, err := this.client.Send(ctx, &data)
+	receives, err := this.client.Send(ctx, &data)
+	if len(receives) > 0 {
+		msg.MessageId = receives[0].MessageID
+	}
 	return err
 }
 

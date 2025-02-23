@@ -1,14 +1,14 @@
 package service
 
 import (
-  // "{{$.ServerName}}/internal/repo"
+  "{{$.ServerName}}/internal/repo"
 )
 
 type Service struct {
   {{$.Name}} I{{$.Name}}
 }
 
-func New() *Service {
+func New(r *repo.Repository) *Service {
 	s := &Service{
 		{{$.Name}}:  New{{$.Name}}(),
   }

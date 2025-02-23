@@ -11,19 +11,28 @@ import (
 )
 
 // NewRocketConsumer 创建RocketConsumer
-func NewRocketConsumer(conf Config) (*rocketConsumer, error) {
+func NewRocketConsumer(conf Config) (Consumer, error) {
+	if len(conf.Endpoints) == 0 {
+		return nil, fmt.Errorf("endpoints is empty")
+	}
 	os.Setenv("mq.consoleAppender.enabled", "true")
 	rocket.ResetLogger()
-	client, err := rocket.NewSimpleConsumer(&rocket.Config{
-		Endpoint: conf.Endpoints[0],
+
+	expr := map[string]*rocket.FilterExpression{}
+	for _, topicVal := range conf.Topics {
+		expr[topicVal] = rocket.SUB_ALL
+	}
+
+	config := &rocket.Config{
+		Endpoint:  conf.Endpoints[0],
+		NameSpace: conf.AppId,
 		Credentials: &credentials.SessionCredentials{
-			AccessKey:    conf.AccessKey,
-			AccessSecret: conf.SecretKey,
+			AccessKey: conf.AccessKey, AccessSecret: conf.SecretKey,
 		},
 		ConsumerGroup: conf.GroupId,
-	},
-		rocket.WithAwaitDuration(time.Second*5),
-	)
+	}
+	client, err := rocket.NewSimpleConsumer(config, rocket.WithAwaitDuration(time.Second*5),
+		rocket.WithSubscriptionExpressions(expr))
 	if err != nil {
 		return nil, err
 	}
@@ -43,15 +52,13 @@ type rocketConsumer struct {
 	callbacks map[string]ConsumeCallback
 }
 
-func (this *rocketConsumer) Register(topic string, f ConsumeCallback) error {
-	realTopic := ""
-	if v, ok := this.topics[topic]; !ok {
+func (this *rocketConsumer) Register(topicKey string, f ConsumeCallback) error {
+	topicVal, ok := this.topics[topicKey]
+	if !ok {
 		return fmt.Errorf("topic not found")
-	} else {
-		realTopic = v
 	}
 
-	this.callbacks[realTopic] = f
+	this.callbacks[topicVal] = f
 	return nil
 }
 
