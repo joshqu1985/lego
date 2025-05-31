@@ -1,28 +1,47 @@
 package mysql
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	"github.com/joshqu1985/lego/metrics"
 )
 
 type Store struct {
 	db *DB
 }
 
-func (this *Store) Exec(ctx context.Context, fn func(*DB) error) error {
+func (this *Store) Exec(fn func(*DB) error, labels ...string) error {
+	now := time.Now()
 	err := fn(this.db)
 
+	// metrics
+	elapse := time.Since(now).Milliseconds()
+	if len(labels) != 0 {
+		metricsDuration.Observe(elapse, labels...)
+	}
+	if len(labels) != 0 && elapse > 500 {
+		metricsSlowCount.Inc(labels...)
+	}
 	return err
 }
 
-func (this *Store) Transaction(ctx context.Context, fn func(*DB) error) error {
+func (this *Store) Transaction(fn func(*DB) error, labels ...string) error {
+	now := time.Now()
 	err := this.db.Transaction(fn)
 
+	// metrics
+	elapse := time.Since(now).Milliseconds()
+	if len(labels) != 0 {
+		metricsDuration.Observe(elapse, labels...)
+	}
+	if len(labels) != 0 && elapse > 500 {
+		metricsSlowCount.Inc(labels...)
+	}
 	return err
 }
 
@@ -40,7 +59,7 @@ func (this *Store) Commit() *DB {
 
 // Config mysql配置
 type Config struct {
-	Endpoint     string `toml:"endpoint" yaml:"endpoint" json:"endpoint"`
+	Endpoint     string `toml:"endpoint" yaml:"endpoint" json:"endpoint"` // 10.X.X.X:3306
 	Auth         string `toml:"auth" yaml:"auth" json:"auth"`
 	Opts         string `toml:"opts" yaml:"opts" json:"opts"`
 	Database     string `toml:"database" yaml:"database" json:"database"`
@@ -65,7 +84,7 @@ func New(conf Config) *Store {
 
 func connect(conf Config) (*DB, error) {
 	dsn := fmt.Sprintf("%s@tcp(%s)/%s", conf.Auth, conf.Endpoint, conf.Database)
-	if len(conf.Opts) > 0 {
+	if conf.Opts != "" {
 		dsn = dsn + "?" + conf.Opts
 	}
 
@@ -89,3 +108,18 @@ func connect(conf Config) (*DB, error) {
 	}
 	return db, nil
 }
+
+var (
+	metricsDuration = metrics.NewHistogram(metrics.HistogramOpt{
+		Namespace: "mysql_client",
+		Name:      "duration_ms",
+		Labels:    []string{"command"},
+		Buckets:   []float64{3, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000},
+	})
+
+	metricsSlowCount = metrics.NewCounter(metrics.CounterOpt{
+		Namespace: "mysql_client",
+		Name:      "slow_count",
+		Labels:    []string{"command"},
+	})
+)

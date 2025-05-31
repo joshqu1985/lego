@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	"github.com/pkg/errors"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/joshqu1985/lego/utils/routine"
 )
 
 var (
@@ -107,9 +108,9 @@ func (this *redisConsumer) Start() error {
 		streams = append(streams, ">")
 	}
 
-	go this.claim()
-	go this.delay()
-	go this.xread(streams)
+	routine.Go(func() { this.claim() })
+	routine.Go(func() { this.delay() })
+	routine.Go(func() { this.xread(streams) })
 
 	stop := signalHandler()
 	go func() {
@@ -119,7 +120,7 @@ func (this *redisConsumer) Start() error {
 
 	this.wg.Add(this.Concurrency)
 	for i := 0; i < this.Concurrency; i++ {
-		go this.work()
+		routine.Go(func() { this.work() })
 	}
 	this.wg.Wait()
 
@@ -225,31 +226,24 @@ func (this *redisConsumer) work() {
 	for {
 		select {
 		case msg := <-this.queue:
-			if err := this.process(msg); err != nil {
+			register, ok := this.consumers[msg.Topic]
+			if !ok || register.callback == nil {
+				if err := this.client.XAck(context.Background(), msg.Topic, this.groupId, msg.MessageId).Err(); err != nil {
+					glog.Errorf("redis stream claim err:%v", err)
+				}
 				continue
 			}
-			if err := this.client.XAck(context.Background(), msg.Topic, this.groupId, msg.MessageId).Err(); err != nil {
-				continue
-			}
+
+			routine.Safe(func() {
+				_ = register.callback(context.Background(), msg)
+				if err := this.client.XAck(context.Background(), msg.Topic, this.groupId, msg.MessageId).Err(); err != nil {
+					glog.Errorf("redis stream claim err:%v", err)
+				}
+			})
 		case <-this.stopWork:
 			return
 		}
 	}
-}
-
-func (this *redisConsumer) process(msg *Message) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if e, ok := r.(error); ok {
-				err = errors.Wrap(e, "consumer panic")
-				return
-			}
-			err = errors.Errorf("consumer panic: %v", r)
-		}
-	}()
-
-	err = this.consumers[msg.Topic].callback(context.Background(), msg)
-	return
 }
 
 func (this *redisConsumer) claimStream(stream string) {

@@ -8,6 +8,7 @@ import (
 
 	rocket "github.com/apache/rocketmq-clients/golang/v5"
 	"github.com/apache/rocketmq-clients/golang/v5/credentials"
+	"github.com/joshqu1985/lego/utils/routine"
 )
 
 // NewRocketConsumer 创建RocketConsumer
@@ -41,6 +42,7 @@ func NewRocketConsumer(conf Config) (Consumer, error) {
 		client:    client,
 		topics:    conf.Topics,
 		callbacks: make(map[string]ConsumeCallback),
+		stopWork:  make(chan struct{}, 1),
 	}
 	return consumer, nil
 }
@@ -50,6 +52,7 @@ type rocketConsumer struct {
 	client    rocket.SimpleConsumer
 	topics    map[string]string
 	callbacks map[string]ConsumeCallback
+	stopWork  chan struct{}
 }
 
 func (this *rocketConsumer) Register(topicKey string, f ConsumeCallback) error {
@@ -68,33 +71,44 @@ func (this *rocketConsumer) Start() error {
 	}
 
 	for {
-		msgs, err := this.client.Receive(context.Background(), 5, time.Second*30)
-		if err != nil {
-			continue
-		}
-
-		for _, msg := range msgs {
-			callback, ok := this.callbacks[msg.GetTopic()]
-			if !ok || callback == nil {
-				this.client.Ack(context.Background(), msg)
+		select {
+		case <-this.stopWork:
+			return nil
+		default:
+			msgs, err := this.client.Receive(context.Background(), 5, time.Second*30)
+			if err != nil {
 				continue
 			}
+			for _, msg := range msgs {
+				fn, ok := this.callbacks[msg.GetTopic()]
+				if !ok || fn == nil {
+					this.client.Ack(context.Background(), msg)
+					continue
+				}
 
-			data := &Message{
-				Topic:      msg.GetTopic(),
-				Properties: msg.GetProperties(),
-				Payload:    msg.GetBody(),
-			}
-			if msg.GetTag() != nil {
-				data.Properties["tag"] = *(msg.GetTag())
-			}
-			if err := callback(context.Background(), data); err == nil {
-				this.client.Ack(context.Background(), msg)
+				data := &Message{
+					Payload:    msg.GetBody(),
+					Topic:      msg.GetTopic(),
+					Properties: msg.GetProperties(),
+				}
+				if msg.GetTag() != nil {
+					data.Properties["tag"] = *(msg.GetTag())
+				}
+
+				if err := routine.Safe(func() {
+					if xerr := fn(context.Background(), data); xerr == nil {
+						this.client.Ack(context.Background(), msg)
+					}
+				}); err != nil {
+					// panic do not retry
+					this.client.Ack(context.Background(), msg)
+				}
 			}
 		}
 	}
 }
 
 func (this *rocketConsumer) Close() error {
+	this.stopWork <- struct{}{}
 	return this.client.GracefulStop()
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang/glog"
+	"github.com/joshqu1985/lego/utils/routine"
 )
 
 func NewLocal(file string, opts options) (Configor, error) {
@@ -75,7 +76,7 @@ func (this *localConfig) watch() error {
 		return err
 	}
 
-	go this.run()
+	routine.Go(func() { this.run() })
 	return nil
 }
 

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/golang/glog"
-	"github.com/pkg/errors"
+	"github.com/joshqu1985/lego/utils/routine"
 )
 
 func NewMemoryConsumer(conf Config) (Consumer, error) {
@@ -40,7 +40,7 @@ func (this *memoryConsumer) Start() error {
 
 	for topic, f := range this.consumers {
 		this.wg.Add(1)
-		go this.work(topic, f)
+		routine.Go(func() { this.work(topic, f) })
 	}
 	this.wg.Wait()
 
@@ -69,26 +69,13 @@ func (this *memoryConsumer) work(topic string, f ConsumeCallback) {
 	for {
 		select {
 		case msg := <-recv:
-			if err := this.process(&msg, f); err != nil {
-				glog.Errorf("mem queue process err:%v", err)
-				continue
-			}
+			routine.Safe(func() {
+				if err := f(context.Background(), &msg); err != nil {
+					glog.Errorf("memory queue process err:%v", err)
+				}
+			})
 		case <-this.stopWork:
 			return
 		}
 	}
-}
-
-func (this *memoryConsumer) process(msg *Message, f ConsumeCallback) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if e, ok := r.(error); ok {
-				err = errors.Wrap(e, "consumer panic")
-				return
-			}
-			err = errors.Errorf("consumer panic: %v", r)
-		}
-	}()
-	err = f(context.Background(), msg)
-	return
 }

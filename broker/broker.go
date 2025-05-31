@@ -2,32 +2,8 @@ package broker
 
 import (
 	"context"
-	"errors"
+	"fmt"
 )
-
-// Message 消息结构
-type Message struct {
-	Properties map[string]string
-	Key        string
-	Payload    []byte
-	MessageId  string // 不需要传 发送后会自动填入
-	Topic      string // 不需要传 内部使用
-}
-
-func (this *Message) SetTag(tag string) {
-	if this.Properties == nil {
-		this.Properties = make(map[string]string)
-	}
-	this.Properties["tag"] = tag
-}
-
-func (this *Message) GetTag() string {
-	tag, ok := this.Properties["tag"]
-	if !ok {
-		return ""
-	}
-	return tag
-}
 
 // Producer 生产者
 type Producer interface {
@@ -41,16 +17,6 @@ type Consumer interface {
 	Start() error
 	Close() error
 }
-
-var (
-	MaxMessageCount = int64(10000)
-)
-
-// ErrUnknowType 暂时不支持的类型错误
-var ErrUnknowType = errors.New("unknow broker type")
-
-// ConsumeCallback 消费回调
-type ConsumeCallback func(context.Context, *Message) error
 
 // NewProducer 创建Producer
 func NewProducer(conf Config) Producer {
@@ -71,7 +37,7 @@ func NewProducer(conf Config) Producer {
 	case "memory":
 		producer, err = NewMemoryProducer(conf)
 	default:
-		producer, err = nil, ErrUnknowType
+		producer, err = nil, fmt.Errorf("unknown source: %s", conf.Source)
 	}
 
 	if err != nil {
@@ -79,6 +45,9 @@ func NewProducer(conf Config) Producer {
 	}
 	return producer
 }
+
+// ConsumeCallback 消费回调
+type ConsumeCallback func(context.Context, *Message) error
 
 // NewConsumer 创建Consumer
 func NewConsumer(conf Config) Consumer {
@@ -99,7 +68,7 @@ func NewConsumer(conf Config) Consumer {
 	case "memory":
 		consumer, err = NewMemoryConsumer(conf)
 	default:
-		consumer, err = nil, ErrUnknowType
+		consumer, err = nil, fmt.Errorf("unknown source: %s", conf.Source)
 	}
 
 	if err != nil {

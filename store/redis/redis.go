@@ -54,13 +54,13 @@ type Config struct {
 	Endpoints []string `toml:"endpoints" yaml:"endpoints" json:"endpoints"`
 	Auth      string   `toml:"auth" yaml:"pass" json:"auth"`
 	Database  int      `toml:"database" yaml:"database" json:"database"`
+	TLS       bool     `toml:"tls" yaml:"tls" json:"tls"`
 	Mode      int      `toml:"mode" yaml:"mode" json:"mode"` // 0 单机 1 集群
-	Tls       bool     `toml:"tls" yaml:"tls" json:"tls"`
 }
 
 func newSingel(conf Config) (*goredis.Client, error) {
 	var tlsConfig *tls.Config
-	if conf.Tls {
+	if conf.TLS {
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}
@@ -78,7 +78,7 @@ func newSingel(conf Config) (*goredis.Client, error) {
 
 func newCluster(conf Config) (*goredis.ClusterClient, error) {
 	var tlsConfig *tls.Config
-	if conf.Tls {
+	if conf.TLS {
 		tlsConfig = &tls.Config{
 			InsecureSkipVerify: true,
 		}

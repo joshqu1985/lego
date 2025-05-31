@@ -3,6 +3,8 @@ package container
 import (
 	"sync"
 	"time"
+
+	"github.com/joshqu1985/lego/utils/routine"
 )
 
 type Batcher struct {
@@ -32,7 +34,7 @@ func NewBatcher(opts ...BatcherOption) *Batcher {
 	batcher.entries = make([]any, 0, batcher.bulkSize)
 	batcher.queue = make(chan []any, batcher.queueSize)
 
-	go batcher.intervalFlush()
+	routine.Go(func() { batcher.intervalFlush() })
 	return &batcher
 }
 

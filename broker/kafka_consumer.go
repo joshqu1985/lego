@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/joshqu1985/lego/utils/routine"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -28,9 +29,9 @@ func NewKafkaConsumer(conf Config) (Consumer, error) {
 	return &kafkaConsumer{
 		topics:    conf.Topics,
 		groupId:   conf.GroupId,
-		ctx:       context.Background(),
 		client:    client,
 		callbacks: map[string]ConsumeCallback{},
+		stopWork:  make(chan struct{}, 1),
 	}, nil
 }
 
@@ -38,8 +39,8 @@ type kafkaConsumer struct {
 	topics    map[string]string
 	groupId   string
 	callbacks map[string]ConsumeCallback
-	ctx       context.Context
 	client    *kafka.Reader
+	stopWork  chan struct{}
 }
 
 func (this *kafkaConsumer) Register(topicKey string, f ConsumeCallback) error {
@@ -53,30 +54,38 @@ func (this *kafkaConsumer) Register(topicKey string, f ConsumeCallback) error {
 }
 
 func (this *kafkaConsumer) Start() error {
+
 	for {
-		msg, err := this.client.ReadMessage(this.ctx)
-		if err != nil {
-			continue
-		}
+		select {
+		case <-this.stopWork:
+			return nil
+		default:
+			msg, err := this.client.ReadMessage(context.Background())
+			if err != nil {
+				continue
+			}
 
-		data := &Message{
-			Topic:      msg.Topic,
-			Properties: map[string]string{},
-			Payload:    msg.Value,
-		}
-		for _, header := range msg.Headers {
-			data.Properties[header.Key] = string(header.Value)
-		}
-		callback, ok := this.callbacks[msg.Topic]
-		if !ok || callback == nil {
-			continue
-		}
+			data := &Message{
+				Topic:      msg.Topic,
+				Properties: map[string]string{},
+				Payload:    msg.Value,
+			}
+			for _, header := range msg.Headers {
+				data.Properties[header.Key] = string(header.Value)
+			}
+			fn, ok := this.callbacks[msg.Topic]
+			if !ok || fn == nil {
+				continue
+			}
 
-		callback(context.Background(), data)
+			routine.Safe(func() {
+				fn(context.Background(), data)
+			})
+		}
 	}
 }
 
 func (this *kafkaConsumer) Close() error {
-	this.ctx.Done()
+	this.stopWork <- struct{}{}
 	return this.client.Close()
 }

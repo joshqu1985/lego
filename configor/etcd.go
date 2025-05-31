@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/joshqu1985/lego/utils/routine"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -58,7 +59,7 @@ func (this *etcdConfig) watch() error {
 	}
 
 	ch := this.client.Watcher.Watch(context.Background(), this.prefix, clientv3.WithPrefix())
-	go this.run(ch)
+	routine.Go(func() { this.run(ch) })
 
 	return nil
 }
@@ -100,7 +101,9 @@ func (this *etcdConfig) run(ch clientv3.WatchChan) {
 				glog.Errorf("etcd config read err:%v", err)
 				continue
 			}
-			this.opts.WatchChange(data)
+			routine.Safe(func() {
+				this.opts.WatchChange(data)
+			})
 		}
 	}
 }

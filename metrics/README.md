@@ -1,7 +1,7 @@
 # metrics
 基于 github.com/prometheus/client_golang 封装的监控模块
 
-## 使用
+## 使用方式
 ```go
 import (
    "fmt"

@@ -9,6 +9,7 @@ import (
 	"github.com/rs/xid"
 
 	"github.com/joshqu1985/lego/container"
+	"github.com/joshqu1985/lego/utils/routine"
 	"github.com/joshqu1985/lego/utils/utime"
 )
 
@@ -91,8 +92,8 @@ type memoryBroker struct {
 func (this *memoryBroker) run() {
 	this.queues.Range(func(key, val any) bool {
 		queue := val.(*TopicQueue)
-		go this.fetchWorker(key.(string), queue)
-		go this.delayWorker(queue)
+		routine.Go(func() { this.fetchWorker(key.(string), queue) })
+		routine.Go(func() { this.delayWorker(queue) })
 		return true
 	})
 }

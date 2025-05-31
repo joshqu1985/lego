@@ -83,6 +83,6 @@ func main() {
     Source:    "pulsar", 
     Endpoints: []string{"pulsar://localhost:6650"},
     GroupId:   "g1",
-    Topics:    map[string]string{"test": "persistent://public/default/test"},
+    Topics:    map[string]string{"topic1": "persistent://public/default/test"},
   }
 ```
