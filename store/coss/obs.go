@@ -14,6 +14,7 @@ type ObsClient struct {
 	endpoint string
 	region   string
 	bucket   string
+	domain   string
 }
 
 func NewObsClient(conf Config, option options) (*ObsClient, error) {
@@ -29,6 +30,7 @@ func NewObsClient(conf Config, option options) (*ObsClient, error) {
 		client:   client,
 		option:   option,
 		bucket:   conf.Bucket,
+		domain:   conf.Domain,
 	}, nil
 }
 
@@ -57,6 +59,10 @@ func (this *ObsClient) Put(ctx context.Context, key string, data io.Reader) (str
 	if err != nil {
 		return "", err
 	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	}
 	return fmt.Sprintf("https://%s.obs.%s.myhuaweicloud.com/%s", this.bucket, this.region, key), nil
 }
 
@@ -83,6 +89,10 @@ func (this *ObsClient) PutFile(ctx context.Context, key, srcfile string) (string
 	_, err := this.client.UploadFile(args)
 	if err != nil {
 		return "", err
+	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
 	}
 	return fmt.Sprintf("https://%s.obs.%s.myhuaweicloud.com/%s", this.bucket, this.region, key), nil
 }

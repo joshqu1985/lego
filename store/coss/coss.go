@@ -37,7 +37,11 @@ func New(conf Config, opts ...Option) (Coss, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown source: %s", conf.Source)
 	}
-	conf.Endpoint = "https://" + fmt.Sprintf(endpoint, conf.Region)
+	if conf.Source == "cos" {
+		conf.Endpoint = "https://" + fmt.Sprintf(endpoint, conf.Bucket, conf.Region)
+	} else {
+		conf.Endpoint = "https://" + fmt.Sprintf(endpoint, conf.Region)
+	}
 
 	var (
 		coss Coss

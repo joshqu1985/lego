@@ -15,6 +15,7 @@ type OssClient struct {
 	endpoint string
 	region   string
 	bucket   string
+	domain   string
 }
 
 func NewOssClient(conf Config, option options) (*OssClient, error) {
@@ -29,6 +30,7 @@ func NewOssClient(conf Config, option options) (*OssClient, error) {
 		client:   client,
 		option:   option,
 		bucket:   conf.Bucket,
+		domain:   conf.Domain,
 	}, nil
 }
 
@@ -54,6 +56,9 @@ func (this *OssClient) Put(ctx context.Context, key string, data io.Reader) (str
 	})
 	if err != nil {
 		return "", err
+	}
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
 	}
 	return fmt.Sprintf("https://%s.oss-%s.aliyuncs.com/%s", this.bucket, this.region, key), nil
 }
@@ -87,6 +92,10 @@ func (this *OssClient) PutFile(ctx context.Context, key, srcfile string) (string
 	_, err := uploader.UploadFile(ctx, args, srcfile, opts)
 	if err != nil {
 		return "", err
+	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
 	}
 	return fmt.Sprintf("https://%s.oss-%s.aliyuncs.com/%s", this.bucket, this.region, key), nil
 }

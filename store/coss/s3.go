@@ -19,6 +19,7 @@ type S3Client struct {
 	endpoint string
 	region   string
 	bucket   string
+	domain   string
 }
 
 func NewS3Client(conf Config, option options) (*S3Client, error) {
@@ -38,6 +39,7 @@ func NewS3Client(conf Config, option options) (*S3Client, error) {
 		option:   option,
 		region:   conf.Region,
 		bucket:   conf.Bucket,
+		domain:   conf.Domain,
 	}, nil
 }
 
@@ -66,6 +68,9 @@ func (this *S3Client) Put(ctx context.Context, key string, data io.Reader) (stri
 	}
 
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	}
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", this.bucket, this.region, key), nil
 }
 
@@ -106,6 +111,10 @@ func (this *S3Client) PutFile(ctx context.Context, key, srcfile string) (string,
 	})
 	if err != nil {
 		return "", err
+	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
 	}
 	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", this.bucket, this.region, key), nil
 }

@@ -2,6 +2,7 @@ package coss
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ type CosClient struct {
 	option   options
 	bucket   string
 	endpoint string
+	domain   string
 }
 
 func NewCosClient(conf Config, option options) (*CosClient, error) {
@@ -22,11 +24,16 @@ func NewCosClient(conf Config, option options) (*CosClient, error) {
 		Transport: &cos.AuthorizationTransport{SecretID: conf.AccessId, SecretKey: conf.AccessSecret},
 	})
 
+	_, _, err := client.Service.Get(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	return &CosClient{
 		endpoint: conf.Endpoint,
 		client:   client,
 		option:   option,
 		bucket:   conf.Bucket,
+		domain:   conf.Domain,
 	}, nil
 }
 
@@ -46,6 +53,10 @@ func (this *CosClient) Put(ctx context.Context, key string, data io.Reader) (str
 	if err != nil {
 		return "", err
 	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	}
 	return this.client.Object.GetObjectURL(key).String(), nil
 }
 
@@ -58,6 +69,10 @@ func (this *CosClient) PutFile(ctx context.Context, key, srcfile string) (string
 	_, err := this.client.Object.PutFromFile(ctx, key, srcfile, nil)
 	if err != nil {
 		return "", err
+	}
+
+	if this.domain != "" {
+		return fmt.Sprintf("%s/%s", this.domain, key), nil
 	}
 	return this.client.Object.GetObjectURL(key).String(), nil
 }

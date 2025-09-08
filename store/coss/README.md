@@ -46,6 +46,7 @@ func main() {
     Bucket:       "test-bucket",
     AccessId:     "xx",
     AccessSecret: "xx",
+    Domain:       "http://xxx.abc.com",
   }
 ```
 
@@ -59,6 +60,7 @@ func main() {
     Bucket:       "test-bucket",
     AccessId:     "xx",
     AccessSecret: "xx",
+    Domain:       "http://xxx.abc.com",
   }
 ```
 
@@ -72,6 +74,7 @@ func main() {
     Bucket:       "test-bucket",
     AccessId:     "xx",
     AccessSecret: "xx",
+    Domain:       "http://xxx.abc.com",
   }
 ```
 
@@ -85,5 +88,6 @@ func main() {
     Bucket:       "test-bucket",
     AccessId:     "xx",
     AccessSecret: "xx",
+    Domain:       "http://xxx.abc.com",
   }
 ```
