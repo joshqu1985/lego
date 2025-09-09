@@ -43,7 +43,7 @@ func main() {
   conf := coss.Config{
     Source:       "oss",
     Region:       "cn-beijing",
-    Bucket:       "test-bucket",
+    Bucket:       "example",
     AccessId:     "xx",
     AccessSecret: "xx",
     Domain:       "http://xxx.abc.com",
@@ -56,8 +56,8 @@ func main() {
   // 配置信息
   conf := coss.Config{
     Source:       "cos",
-    Region:       "cn-beijing",
-    Bucket:       "test-bucket",
+    Region:       "ap-beijing",
+    Bucket:       "example-1234567",
     AccessId:     "xx",
     AccessSecret: "xx",
     Domain:       "http://xxx.abc.com",
@@ -71,7 +71,7 @@ func main() {
   conf := coss.Config{
     Source:       "obs",
     Region:       "cn-beijing",
-    Bucket:       "test-bucket",
+    Bucket:       "example",
     AccessId:     "xx",
     AccessSecret: "xx",
     Domain:       "http://xxx.abc.com",
@@ -85,7 +85,7 @@ func main() {
   conf := coss.Config{
     Source:       "s3",
     Region:       "cn",
-    Bucket:       "test-bucket",
+    Bucket:       "example",
     AccessId:     "xx",
     AccessSecret: "xx",
     Domain:       "http://xxx.abc.com",

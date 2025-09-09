@@ -3,9 +3,9 @@ package coss
 type Option func(o *options)
 
 type options struct {
-	// BulkSize 下载大文件时的块大小
+	// 上传下载大文件时的块大小
 	BulkSize int64
-	// Concurrency 下载大文件时的并发数
+	// 上传下载大文件时的并发数
 	Concurrency int
 }
 
