@@ -1,8 +1,8 @@
 package configor
 
 import (
-	"crypto/md5"
-	"fmt"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"os"
 	"time"
@@ -10,62 +10,73 @@ import (
 	"github.com/joshqu1985/lego/encoding"
 )
 
-type Configor interface {
-	Load(v any) error
-}
+const (
+	ENCODING_JSON = "json"
+	ENCODING_YAML = "yaml"
+	ENCODING_TOML = "toml"
 
-func New(file string, opts ...Option) Configor {
+	SOURCE_ETCD   = "etcd"
+	SOURCE_APOLLO = "apollo"
+	SOURCE_NACOS  = "nacos"
+)
+
+type (
+	Configor interface {
+		Load(v any) error
+	}
+
+	/*
+	 * apollo 配置项
+	 *   cluster: 应用所属的集群 默认default
+	 *   app_id: 用来标识应用身份(服务名 *唯一*)
+	 *   namespace: 配置项的集合(应用的下一层)
+	 * nacos 配置项
+	 *   cluster: nacos的namespaceid
+	 *   app_id: nacos的dataId
+	 * etcd 配置项
+	 *   cluster: etcd的key前缀
+	 *   app_id:  etcd的key前缀.
+	 */
+	SourceConfig struct {
+		Source    string   `json:"source"     toml:"source"     yaml:"source"`
+		Cluster   string   `json:"cluster"    toml:"cluster"    yaml:"cluster"`
+		AppId     string   `json:"app_id"     toml:"app_id"     yaml:"app_id"`
+		Namespace string   `json:"namespace"  toml:"namespace"  yaml:"namespace"`
+		AccessKey string   `json:"access_key" toml:"access_key" yaml:"access_key"`
+		SecretKey string   `json:"secret_key" toml:"secret_key" yaml:"secret_key"`
+		Endpoints []string `json:"endpoints"  toml:"endpoints"  yaml:"endpoints"`
+	}
+
+	ChangeSet struct {
+		Timestamp time.Time
+		Value     []byte
+	}
+)
+
+func New(file string, opts ...Option) (Configor, error) {
 	var option options
 	for _, opt := range opts {
 		opt(&option)
 	}
 	if option.Encoding == nil {
-		option.Encoding = encoding.New("toml")
+		option.Encoding = encoding.New(ENCODING_TOML)
 	}
 
 	conf, err := ReadSourceConfig(file, option.Encoding)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
-	var configor Configor
 	switch conf.Source {
-	case "etcd":
-		configor, err = NewEtcd(conf, option)
-	case "apollo":
-		configor, err = NewApollo(conf, option)
-	case "nacos":
-		configor, err = NewNacos(conf, option)
+	case SOURCE_ETCD:
+		return NewEtcd(conf, option)
+	case SOURCE_APOLLO:
+		return NewApollo(conf, option)
+	case SOURCE_NACOS:
+		return NewNacos(conf, option)
 	default:
-		configor, err = NewLocal(file, option)
+		return NewLocal(file, option)
 	}
-
-	if err != nil {
-		panic(err)
-	}
-	return configor
-}
-
-/*
- * apollo 配置项
- *   cluster: 应用所属的集群 默认default
- *   app_id: 用来标识应用身份(服务名 *唯一*)
- *   namespace: 配置项的集合(应用的下一层)
- * nacos 配置项
- *   cluster: nacos的namespaceid
- *   app_id: nacos的dataId
- * etcd 配置项
- *   cluster: etcd的key前缀
- *   app_id:  etcd的key前缀
- */
-type SourceConfig struct {
-	Source    string   `json:"source" yaml:"source" toml:"source"`             // apollo      | nacos        | etcd
-	Endpoints []string `json:"endpoints" yaml:"endpoints" toml:"endpoints"`    //  ip         |  addr        |  endpoints
-	Cluster   string   `json:"cluster" yaml:"cluster" toml:"cluster"`          //  cluster    |  namespaceid |  key前缀
-	AppId     string   `json:"app_id" yaml:"app_id" toml:"app_id"`             //  appId      |  DataId      |  key前缀
-	Namespace string   `json:"namespace" yaml:"namespace" toml:"namespace"`    //  namespace  |  \           |  \
-	AccessKey string   `json:"access_key" yaml:"access_key" toml:"access_key"` //  \          |  access_key  |  username
-	SecretKey string   `json:"secret_key" yaml:"secret_key" toml:"secret_key"` //  secret     |  secret_key  |  password
 }
 
 func ReadSourceConfig(file string, encoding encoding.Encoding) (*SourceConfig, error) {
@@ -81,16 +92,13 @@ func ReadSourceConfig(file string, encoding encoding.Encoding) (*SourceConfig, e
 	}
 
 	c := &SourceConfig{}
+
 	return c, encoding.Unmarshal(data, c)
 }
 
-type ChangeSet struct {
-	Timestamp time.Time
-	Value     []byte
-}
-
 func (c *ChangeSet) Sum(data []byte) string {
-	h := md5.New()
-	h.Write(data)
-	return fmt.Sprintf("%x", h.Sum(nil))
+	h := sha256.New()
+	_, _ = h.Write(data)
+
+	return hex.EncodeToString(h.Sum(nil))
 }

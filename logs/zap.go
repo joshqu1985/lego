@@ -1,23 +1,25 @@
 package logs
 
 import (
-	"context"
-	"fmt"
 	"os"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-
-	"github.com/joshqu1985/lego/broker"
 )
 
-// Logger 避免业务代码对zap直接依赖
-type Logger = zap.SugaredLogger
+const (
+	OUTPUT_CONSOLE = "console"
+	OUTPUT_FILE    = "file"
+)
 
-// NewZapLogger 创建zap
+type (
+	// Logger 避免业务代码对zap直接依赖.
+	Logger = zap.SugaredLogger
+)
+
+// NewZapLogger 创建zap.
 func NewZapLogger(opts options) *Logger {
-	zap.NewProduction()
 	return zap.New(newZapCore(opts), zap.AddCaller(), zap.AddCallerSkip(1)).Sugar()
 }
 
@@ -32,12 +34,10 @@ func newZapCore(opts options) zapcore.Core {
 	writers := make([]zapcore.WriteSyncer, 0)
 	for _, w := range opts.Writers {
 		switch w {
-		case "console":
+		case OUTPUT_CONSOLE:
 			writers = append(writers, newConsoleWriter(opts))
-		case "file":
+		case OUTPUT_FILE:
 			writers = append(writers, newFileWriter(opts))
-		case "kafka":
-			writers = append(writers, newKafkaWriter(opts))
 		}
 	}
 
@@ -66,34 +66,8 @@ func newFileWriter(opts options) zapcore.WriteSyncer {
 		config.MaxAge = opts.WriterFile.MaxAge
 		config.Compress = opts.WriterFile.Compress
 	}
+
 	return zapcore.AddSync(config)
-}
-
-func newKafkaWriter(opts options) zapcore.WriteSyncer {
-	return &kafkaWriter{
-		producer: opts.WriterKafka.Producer,
-		topic:    opts.WriterKafka.Topic,
-	}
-}
-
-type kafkaWriter struct {
-	producer broker.Producer
-	topic    string
-}
-
-func (this *kafkaWriter) Write(p []byte) (int, error) {
-	if this.producer == nil {
-		return 0, fmt.Errorf("producer is nil")
-	}
-	err := this.producer.Send(context.Background(), this.topic, &broker.Message{Payload: p})
-	if err != nil {
-		return 0, err
-	}
-	return len(p), nil
-}
-
-func (k *kafkaWriter) Sync() error {
-	return nil
 }
 
 func toZapLevel(level Level) zapcore.Level {
@@ -111,5 +85,6 @@ func toZapLevel(level Level) zapcore.Level {
 	case FATAL:
 		return zap.FatalLevel
 	}
+
 	return zap.InfoLevel
 }

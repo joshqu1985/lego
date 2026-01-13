@@ -8,7 +8,7 @@ import (
 )
 
 func TestRocketBroker(t *testing.T) {
-	consumer, err := NewRocketConsumer(Config{
+	consumer, err := NewRocketConsumer(&Config{
 		Endpoints: []string{"localhost:8081"},
 		GroupId:   "g1",
 		Topics:    map[string]string{"test": "test"},
@@ -25,7 +25,7 @@ func TestRocketBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, err := NewRocketProducer(Config{
+	producer, err := NewRocketProducer(&Config{
 		Endpoints: []string{"localhost:8081"},
 		Topics:    map[string]string{"test": "test"},
 	})

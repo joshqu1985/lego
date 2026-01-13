@@ -1,5 +1,6 @@
 package strings
 
+/*
 import "unsafe"
 
 func String2Bytes(s string) []byte {
@@ -11,3 +12,4 @@ func String2Bytes(s string) []byte {
 func Bytes2String(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
+*/

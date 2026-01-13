@@ -2,20 +2,33 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log"
-	rand "math/rand/v2"
 	"time"
+
+	rand "math/rand/v2"
 
 	"github.com/joshqu1985/lego/transport/naming"
 	"github.com/joshqu1985/lego/transport/rpc"
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/route_guide/routeguide"
 )
 
-func NewRecordRouter() *RecordRouter {
-	c, err := rpc.NewClient("route_guide", rpc.WithNaming(naming.Get()))
+type RecordRouter struct {
+	client pb.RouteGuideClient
+}
+
+var (
+	StringListFeatures = "client.ListFeatures failed:%v"
+	StringRecordRoute  = "client.RecordRoute failed:%v"
+	StringRouteChat    = "client.RouteChat failed: %v"
+)
+
+func NewRecordRouter(n naming.Naming) *RecordRouter {
+	c, err := rpc.NewClient("route_guide", rpc.WithNaming(n))
 	if err != nil {
-		log.Fatalf("rpc.NewClient failed: %v", err)
+		log.Printf("rpc.NewClient failed: %v", err)
+
 		return nil
 	}
 
@@ -24,73 +37,81 @@ func NewRecordRouter() *RecordRouter {
 	}
 }
 
-type RecordRouter struct {
-	client pb.RouteGuideClient
-}
-
-func (this *RecordRouter) PrintFeature(point *pb.Point) {
-	log.Printf("Getting feature for point (%d, %d)", point.Latitude, point.Longitude)
+func (rr *RecordRouter) PrintFeature(point *pb.Point) {
+	log.Printf("Getting feature for point (%d, %d)", point.GetLatitude(), point.GetLongitude())
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	feature, err := this.client.GetFeature(ctx, point)
+	feature, err := rr.client.GetFeature(ctx, point)
 	if err != nil {
-		log.Fatalf("client.GetFeature failed: %v", err)
+		log.Printf("client.GetFeature failed: %v", err)
+
+		return
 	}
 	log.Println(feature)
 }
 
-func (this *RecordRouter) PrintFeatures(rect *pb.Rectangle) {
+func (rr *RecordRouter) PrintFeatures(rect *pb.Rectangle) {
 	log.Printf("Looking for features within %v", rect)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	stream, err := this.client.ListFeatures(ctx, rect)
+	stream, err := rr.client.ListFeatures(ctx, rect)
 	if err != nil {
-		log.Fatalf("client.ListFeatures failed: %v", err)
+		log.Printf(StringListFeatures, err)
+
+		return
 	}
 	for {
-		feature, err := stream.Recv()
-		if err == io.EOF {
+		feature, xerr := stream.Recv()
+		if errors.Is(xerr, io.EOF) {
 			break
 		}
-		if err != nil {
-			log.Fatalf("client.ListFeatures failed: %v", err)
+		if xerr != nil {
+			log.Printf(StringListFeatures, xerr)
+
+			return
 		}
 		log.Printf("Feature: name: %q, point:(%v, %v)", feature.GetName(),
 			feature.GetLocation().GetLatitude(), feature.GetLocation().GetLongitude())
 	}
 }
 
-func (this *RecordRouter) RunRecordRoute() {
+func (rr *RecordRouter) RunRecordRoute() {
 	// Create a random number of random points
-	pointCount := int(rand.Int32N(100)) + 2 // Traverse at least two points
+	pointCount := int(rand.Int32N(100)) + 2 //nolint:gosec // Traverse at least two points
 	var points []*pb.Point
-	for i := 0; i < pointCount; i++ {
-		points = append(points, this.RandomPoint())
+	for range pointCount {
+		points = append(points, rr.RandomPoint())
 	}
 	log.Printf("Traversing %d points.", len(points))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	stream, err := this.client.RecordRoute(ctx)
+	stream, err := rr.client.RecordRoute(ctx)
 	if err != nil {
-		log.Fatalf("client.RecordRoute failed: %v", err)
+		log.Printf(StringRecordRoute, err)
+
+		return
 	}
 	for _, point := range points {
-		if err := stream.Send(point); err != nil {
-			log.Fatalf("client.RecordRoute: stream.Send(%v) failed: %v", point, err)
+		if xerr := stream.Send(point); xerr != nil {
+			log.Printf("client.RecordRoute: stream.Send(%v) failed: %v", point, xerr)
+
+			return
 		}
 	}
 	reply, err := stream.CloseAndRecv()
 	if err != nil {
-		log.Fatalf("client.RecordRoute failed: %v", err)
+		log.Printf(StringRecordRoute, err)
+
+		return
 	}
 	log.Printf("Route summary: %v", reply)
 }
 
-func (this *RecordRouter) RunRouteChat() {
+func (rr *RecordRouter) RunRouteChat() {
 	notes := []*pb.RouteNote{
 		{Location: &pb.Point{Latitude: 0, Longitude: 1}, Message: "First message"},
 		{Location: &pb.Point{Latitude: 0, Longitude: 2}, Message: "Second message"},
@@ -102,36 +123,49 @@ func (this *RecordRouter) RunRouteChat() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	stream, err := this.client.RouteChat(ctx)
+	stream, err := rr.client.RouteChat(ctx)
 	if err != nil {
-		log.Fatalf("client.RouteChat failed: %v", err)
+		log.Printf(StringRouteChat, err)
+
+		return
 	}
 	waitc := make(chan struct{})
 	go func() {
 		for {
-			in, err := stream.Recv()
-			if err == io.EOF {
+			in, xerr := stream.Recv()
+			if errors.Is(xerr, io.EOF) {
 				// read done.
 				close(waitc)
+
 				return
 			}
-			if err != nil {
-				log.Fatalf("client.RouteChat failed: %v", err)
+			if xerr != nil {
+				log.Printf(StringRouteChat, xerr)
+
+				return
 			}
-			log.Printf("Got message %s at point(%d, %d)", in.Message, in.Location.Latitude, in.Location.Longitude)
+			log.Printf(
+				"Got message %s at point(%d, %d)",
+				in.GetMessage(),
+				in.GetLocation().GetLatitude(),
+				in.GetLocation().GetLongitude(),
+			)
 		}
 	}()
 	for _, note := range notes {
-		if err := stream.Send(note); err != nil {
-			log.Fatalf("client.RouteChat: stream.Send(%v) failed: %v", note, err)
+		if xerr := stream.Send(note); xerr != nil {
+			log.Printf("client.RouteChat: stream.Send(%v) failed: %v", note, xerr)
+
+			return
 		}
 	}
-	stream.CloseSend()
+	_ = stream.CloseSend()
 	<-waitc
 }
 
-func (this *RecordRouter) RandomPoint() *pb.Point {
-	lat := (rand.Int32N(180) - 90) * 1e7
-	long := (rand.Int32N(360) - 180) * 1e7
-	return &pb.Point{Latitude: lat, Longitude: long}
+func (rr *RecordRouter) RandomPoint() *pb.Point {
+	lat := (rand.Int32N(180) - 90) * 1e7  //nolint:gosec
+	lng := (rand.Int32N(360) - 180) * 1e7 //nolint:gosec
+
+	return &pb.Point{Latitude: lat, Longitude: lng}
 }

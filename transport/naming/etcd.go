@@ -2,14 +2,40 @@ package naming
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/golang/glog"
 	"github.com/samber/lo"
-	clientv3 "go.etcd.io/etcd/client/v3"
+
+	clientv3 "go.etcd.io/etcd/client/v3" //nolint:gomodguard
+
+	"github.com/joshqu1985/lego/logs"
+)
+
+type (
+	etcd struct {
+		client   *clientv3.Client
+		quit     chan struct{}
+		config   *Config
+		services map[string]*etcdService
+		prefix   string
+		key      string
+		val      string
+		lease    clientv3.LeaseID
+		sync.RWMutex
+	}
+
+	etcdService struct {
+		client    *clientv3.Client
+		values    map[string]string
+		prefix    string
+		key       string
+		listeners []func()
+		revision  int64
+		sync.RWMutex
+	}
 )
 
 func NewEtcd(conf *Config) (Naming, error) {
@@ -19,80 +45,72 @@ func NewEtcd(conf *Config) (Naming, error) {
 		config:   conf,
 	}
 
-	// etcd前缀 discovery:${conf.Cluster}:
-	c.prefix = strings.Join([]string{"naming", conf.Cluster}, ":")
-	return c, c.init(conf)
+	// etcd前缀 naming:${conf.Cluster}:
+	c.prefix = "naming" + ":" + conf.Cluster
+
+	err := c.init(conf)
+
+	return c, err
 }
 
-type etcd struct {
-	prefix string
-	key    string
-	val    string
-	lease  clientv3.LeaseID
-	client *clientv3.Client
-	quit   chan struct{}
-	config *Config
-
-	services map[string]*etcdService
-	sync.RWMutex
+func (e *etcd) Endpoints() []string {
+	return e.config.Endpoints
 }
 
-func (this *etcd) Endpoints() []string {
-	return this.config.Endpoints
+func (e *etcd) Name() string {
+	return SOURCE_ETCD
 }
 
-func (this *etcd) Name() string {
-	return "etcd"
-}
+func (e *etcd) Register(key, val string) error {
+	e.key, e.val = key, val
 
-func (this *etcd) Register(key, val string) error {
-	this.key, this.val = key, val
-
-	if this.client == nil {
-		return fmt.Errorf("etcd client is nil")
+	if e.client == nil {
+		return ErrClientNil
 	}
 
-	if err := this.register(); err != nil {
+	if err := e.register(); err != nil {
 		return err
 	}
 
-	return this.keepAlive()
+	return e.keepAlive()
 }
 
-func (this *etcd) Deregister(_ string) error {
-	key := fmt.Sprintf("%s:%s:%d", this.prefix, this.key, this.lease)
-	_, err := this.client.Delete(context.Background(), key)
+func (e *etcd) Deregister(_ string) error {
+	key := fmt.Sprintf("%s:%s:%d", e.prefix, e.key, e.lease)
+	_, err := e.client.Delete(context.Background(), key)
+
 	return err
 }
 
-func (this *etcd) Service(key string) RegService {
-	this.Lock()
-	defer this.Unlock()
+func (e *etcd) Service(key string) RegService {
+	e.Lock()
+	defer e.Unlock()
 
-	service, ok := this.services[key]
+	service, ok := e.services[key]
 	if ok {
 		return service
 	}
 
 	service = &etcdService{
-		prefix: this.prefix,
+		prefix: e.prefix,
 		key:    key,
-		client: this.client,
+		client: e.client,
 	}
 	go func() { _ = service.Watch() }()
 
-	this.services[key] = service
+	e.services[key] = service
+
 	return service
 }
 
-func (this *etcd) Close() {
-	if this.client != nil {
-		this.client.Close()
+func (e *etcd) Close() {
+	if e.client != nil {
+		e.client.Close()
 	}
-	close(this.quit)
+	close(e.quit)
 }
 
-func (this *etcd) init(conf *Config) (err error) {
+func (e *etcd) init(conf *Config) error {
 	config := clientv3.Config{
 		Endpoints:   conf.Endpoints,
 		Username:    conf.AccessKey,
@@ -100,28 +118,31 @@ func (this *etcd) init(conf *Config) (err error) {
 		DialTimeout: 3 * time.Second,
 	}
 
-	this.client, err = clientv3.New(config)
+	var err error
+	e.client, err = clientv3.New(config)
+
 	return err
 }
 
-func (this *etcd) register() error {
+func (e *etcd) register() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(3)*time.Second)
 	defer cancel()
 
-	resp, err := this.client.Grant(ctx, 10)
+	resp, err := e.client.Grant(ctx, 10)
 	if err != nil {
 		return err
 	}
-	this.lease = resp.ID
+	e.lease = resp.ID
 
-	key := fmt.Sprintf("%s:%s:%d", this.prefix, this.key, this.lease)
-	_, err = this.client.Put(ctx, key, this.val,
-		clientv3.WithLease(this.lease))
+	key := fmt.Sprintf("%s:%s:%d", e.prefix, e.key, e.lease)
+	_, err = e.client.Put(ctx, key, e.val,
+		clientv3.WithLease(e.lease))
+
 	return err
 }
 
-func (this *etcd) keepAlive() error {
-	ch, err := this.client.KeepAlive(context.Background(), this.lease)
+func (e *etcd) keepAlive() error {
+	ch, err := e.client.KeepAlive(context.Background(), e.lease)
 	if err != nil {
 		return err
 	}
@@ -131,121 +152,118 @@ func (this *etcd) keepAlive() error {
 			select {
 			case _, ok := <-ch:
 				if !ok {
-					_ = this.revoke()
+					_ = e.revoke()
+
 					return
 				}
-			case <-this.quit:
-				_ = this.revoke()
+			case <-e.quit:
+				_ = e.revoke()
+
 				return
 			}
 		}
 	}()
+
 	return nil
 }
 
-func (this *etcd) revoke() error {
-	_, err := this.client.Revoke(context.Background(), this.lease)
+func (e *etcd) revoke() error {
+	_, err := e.client.Revoke(context.Background(), e.lease)
+
 	return err
 }
 
-type etcdService struct {
-	prefix string
-	key    string
-	client *clientv3.Client
+// ----------- etcdService -------------
 
-	revision int64
-	values   map[string]string
-	sync.RWMutex
-	listeners []func()
+func (es *etcdService) Name() string {
+	return es.key
 }
 
-func (this *etcdService) Name() string {
-	return this.key
-}
-
-func (this *etcdService) Addrs() ([]string, error) {
-	if this.client == nil {
-		return nil, fmt.Errorf("etcd client is nil")
+func (es *etcdService) Addrs() ([]string, error) {
+	if es.client == nil {
+		return nil, errors.New("etcd client is nil")
 	}
 
-	this.RLock()
-	revision, addrs := this.revision, this.values
-	this.RUnlock()
+	es.RLock()
+	revision, addrs := es.revision, es.values
+	es.RUnlock()
 
 	if revision != 0 && len(addrs) != 0 {
 		return lo.Values(addrs), nil
 	}
 
-	addrs, err := this.load()
+	addrs, err := es.load()
 	if err != nil {
 		return nil, err
 	}
+
 	return lo.Values(addrs), nil
 }
 
-func (this *etcdService) AddListener(f func()) {
-	this.Lock()
-	this.listeners = append(this.listeners, f)
-	this.Unlock()
+func (es *etcdService) AddListener(f func()) {
+	es.Lock()
+	es.listeners = append(es.listeners, f)
+	es.Unlock()
 }
 
-func (this *etcdService) load() (map[string]string, error) {
+func (es *etcdService) load() (map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(3)*time.Second)
 	defer cancel()
 
-	key := fmt.Sprintf("%s:%s:", this.prefix, this.key)
-	resp, err := this.client.Get(ctx, key, clientv3.WithPrefix(), clientv3.WithSerializable())
+	key := fmt.Sprintf("%s:%s:", es.prefix, es.key)
+	resp, err := es.client.Get(ctx, key, clientv3.WithPrefix(), clientv3.WithSerializable())
 	if err != nil {
 		return nil, err
 	}
 
-	addrs := map[string]string{}
+	addrs := make(map[string]string)
 	for _, kv := range resp.Kvs {
 		addrs[string(kv.Key)] = string(kv.Value)
 	}
 
-	this.Lock()
-	this.revision, this.values = resp.Header.Revision, addrs
-	this.Unlock()
+	es.Lock()
+	es.revision, es.values = resp.Header.Revision, addrs
+	es.Unlock()
+
 	return addrs, nil
 }
 
-func (this *etcdService) Watch() error {
-	key := fmt.Sprintf("%s:%s:", this.prefix, this.key)
-	watchCh := this.client.Watcher.Watch(context.Background(), key,
-		clientv3.WithPrefix(), clientv3.WithRev(this.revision+1))
+func (es *etcdService) Watch() error {
+	key := fmt.Sprintf("%s:%s:", es.prefix, es.key)
+	watchCh := es.client.Watch(context.Background(), key,
+		clientv3.WithPrefix(), clientv3.WithRev(es.revision+1))
 
 	for {
 		select {
 		case resp, ok := <-watchCh:
 			if !ok {
-				return fmt.Errorf("etcd watch chan has been closed")
+				return errors.New("etcd watch chan has been closed")
 			}
 			if resp.Canceled || resp.Err() != nil {
 				return resp.Err()
 			}
-			this.processEvents(resp.Events)
+			es.processEvents(resp.Events)
 		}
 	}
 }
 
-func (this *etcdService) processEvents(events []*clientv3.Event) {
-	this.Lock()
-	listeners := this.listeners
-	this.Unlock()
+func (es *etcdService) processEvents(events []*clientv3.Event) {
+	es.Lock()
+	listeners := es.listeners
+	es.Unlock()
 
 	for _, ev := range events {
 		switch ev.Type {
 		case clientv3.EventTypePut:
-			this.Lock()
-			this.values[string(ev.Kv.Key)] = string(ev.Kv.Value)
-			this.Unlock()
+			es.Lock()
+			es.values[string(ev.Kv.Key)] = string(ev.Kv.Value)
+			es.Unlock()
 		case clientv3.EventTypeDelete:
-			this.Lock()
-			delete(this.values, string(ev.Kv.Key))
-			this.Unlock()
+			es.Lock()
+			delete(es.values, string(ev.Kv.Key))
+			es.Unlock()
 		default:
-			glog.Errorf("unknown etcd watch event type:%v", ev.Type)
+			logs.Errorf("unknown etcd watch event type:%v", ev.Type)
 		}
 	}
 

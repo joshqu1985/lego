@@ -5,14 +5,21 @@ import (
 	"time"
 )
 
-type SlidingWindow[T IBucket] struct {
-	buckets  []T
-	size     int64
-	offset   int64
-	slide    time.Duration
-	lastTime time.Time // start time of the last bucket
-	sync.RWMutex
-}
+type (
+	SlidingWindow[T IBucket] struct {
+		lastTime time.Time
+		buckets  []T
+		size     int64
+		offset   int64
+		slide    time.Duration
+		sync.RWMutex
+	}
+
+	IBucket interface {
+		Add(int64)
+		Reset()
+	}
+)
 
 func NewSlidingWindow[T IBucket](slide time.Duration, buckets []T) *SlidingWindow[T] {
 	return &SlidingWindow[T]{
@@ -34,7 +41,7 @@ func (this *SlidingWindow[T]) Range(fn func(T)) {
 	this.Lock()
 	defer this.Unlock()
 	this.sliding()
-	for i := int64(0); i < this.size; i++ {
+	for i := range this.size {
 		fn(this.buckets[(i+this.offset+1)%this.size])
 	}
 }
@@ -50,7 +57,7 @@ func (this *SlidingWindow[T]) sliding() {
 	}
 
 	offset := this.offset
-	for i := int64(0); i < timespan; i++ {
+	for i := range timespan {
 		this.reset((offset + i + 1) % this.size)
 	}
 
@@ -62,15 +69,10 @@ func (this *SlidingWindow[T]) span() int64 {
 	return int64(time.Since(this.lastTime) / this.slide)
 }
 
-func (this *SlidingWindow[T]) add(offset int64, cmd int64) {
+func (this *SlidingWindow[T]) add(offset, cmd int64) {
 	this.buckets[offset%this.size].Add(cmd)
 }
 
 func (this *SlidingWindow[T]) reset(offset int64) {
 	this.buckets[offset%this.size].Reset()
-}
-
-type IBucket interface {
-	Add(int64)
-	Reset()
 }

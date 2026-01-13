@@ -8,7 +8,7 @@ import (
 )
 
 func TestRedisBroker(t *testing.T) {
-	consumer, _ := NewRedisConsumer(Config{
+	consumer, _ := NewRedisConsumer(&Config{
 		Endpoints: []string{"127.0.0.1:6379"},
 		GroupId:   "g1",
 		Topics:    map[string]string{"test": "test"},
@@ -19,7 +19,7 @@ func TestRedisBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, _ := NewRedisProducer(Config{
+	producer, _ := NewRedisProducer(&Config{
 		Endpoints: []string{"127.0.0.1:6379"},
 		Topics:    map[string]string{"test": "test"},
 	})
@@ -42,7 +42,7 @@ func TestRedisBroker(t *testing.T) {
 	curr := time.Now().Unix()
 	err = producer.Send(context.Background(), "test", &Message{
 		Payload: []byte("hello kitty 3"),
-	}, curr+5)
+	})
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -53,7 +53,7 @@ func TestRedisBroker(t *testing.T) {
 }
 
 func BenchmarkRedisProducer(b *testing.B) {
-	producer, _ := NewRedisProducer(Config{
+	producer, _ := NewRedisProducer(&Config{
 		Endpoints: []string{"127.0.0.1:6379"},
 		Topics:    map[string]string{"test": "test"},
 	})

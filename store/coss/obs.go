@@ -8,16 +8,20 @@ import (
 	"github.com/huaweicloud/huaweicloud-sdk-go-obs/obs"
 )
 
+const (
+	FORMAT_OBS = "https://%s." + ENDPOINT_OBS + "/%s"
+)
+
 type ObsClient struct {
 	client   *obs.ObsClient
-	option   options
 	endpoint string
 	region   string
 	bucket   string
 	domain   string
+	option   options
 }
 
-func NewObsClient(conf Config, option options) (*ObsClient, error) {
+func NewObsClient(conf *Config, option options) (*ObsClient, error) {
 	client, err := obs.New(conf.AccessId, conf.AccessSecret, conf.Endpoint,
 		obs.WithSignature(obs.SignatureObs))
 	if err != nil {
@@ -34,78 +38,82 @@ func NewObsClient(conf Config, option options) (*ObsClient, error) {
 	}, nil
 }
 
-func (this *ObsClient) Get(ctx context.Context, key string, data io.Writer) error {
+func (obc *ObsClient) Get(ctx context.Context, key string, data io.Writer) error {
 	args := &obs.GetObjectInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Key = key
 
-	resp, err := this.client.GetObject(args)
+	resp, err := obc.client.GetObject(args)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	_, err = io.Copy(data, resp.Body)
+
 	return err
 }
 
-func (this *ObsClient) Put(ctx context.Context, key string, data io.Reader) (string, error) {
+func (obc *ObsClient) Put(ctx context.Context, key string, data io.Reader) (string, error) {
 	args := &obs.PutObjectInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Key = key
 	args.Body = data
 
-	_, err := this.client.PutObject(args)
+	_, err := obc.client.PutObject(args)
 	if err != nil {
 		return "", err
 	}
 
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	if obc.domain != "" {
+		return fmt.Sprintf("%s/%s", obc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.obs.%s.myhuaweicloud.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_OBS, obc.bucket, obc.region, key), nil
 }
 
-func (this *ObsClient) GetFile(ctx context.Context, key, dstfile string) error {
+func (obc *ObsClient) GetFile(ctx context.Context, key, dstfile string) error {
 	args := &obs.DownloadFileInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Key = key
 	args.DownloadFile = dstfile
-	args.PartSize = this.option.BulkSize
-	args.TaskNum = this.option.Concurrency
+	args.PartSize = obc.option.BulkSize
+	args.TaskNum = obc.option.Concurrency
 
-	_, err := this.client.DownloadFile(args)
+	_, err := obc.client.DownloadFile(args)
+
 	return err
 }
 
-func (this *ObsClient) PutFile(ctx context.Context, key, srcfile string) (string, error) {
+func (obc *ObsClient) PutFile(ctx context.Context, key, srcfile string) (string, error) {
 	args := &obs.UploadFileInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Key = key
 	args.UploadFile = srcfile
-	args.PartSize = this.option.BulkSize
-	args.TaskNum = this.option.Concurrency
+	args.PartSize = obc.option.BulkSize
+	args.TaskNum = obc.option.Concurrency
 
-	_, err := this.client.UploadFile(args)
+	_, err := obc.client.UploadFile(args)
 	if err != nil {
 		return "", err
 	}
 
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	if obc.domain != "" {
+		return fmt.Sprintf("%s/%s", obc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.obs.%s.myhuaweicloud.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_OBS, obc.bucket, obc.region, key), nil
 }
 
-func (this *ObsClient) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
+func (obc *ObsClient) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
 	args := &obs.ListObjectsInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Prefix = prefix
 	args.MaxKeys = 1000
 	args.Marker = nextToken
 
 	nextMarker := ""
-	resp, err := this.client.ListObjects(args)
+	resp, err := obc.client.ListObjects(args)
 	if err != nil {
 		return nil, "", err
 	}
@@ -114,18 +122,19 @@ func (this *ObsClient) List(ctx context.Context, prefix, nextToken string) ([]Ob
 	}
 
 	items := make([]ObjectMeta, 0, 1000)
-	for _, item := range resp.Contents {
-		items = append(items, ObjectMeta{Key: item.Key, ContentLength: item.Size})
+	for i := range len(resp.Contents) {
+		items = append(items, ObjectMeta{Key: resp.Contents[i].Key, ContentLength: resp.Contents[i].Size})
 	}
+
 	return items, nextMarker, nil
 }
 
-func (this *ObsClient) Head(ctx context.Context, key string) (ObjectMeta, error) {
+func (obc *ObsClient) Head(ctx context.Context, key string) (ObjectMeta, error) {
 	args := &obs.GetObjectMetadataInput{}
-	args.Bucket = this.bucket
+	args.Bucket = obc.bucket
 	args.Key = key
 
-	resp, err := this.client.GetObjectMetadata(args)
+	resp, err := obc.client.GetObjectMetadata(args)
 	if err != nil {
 		return ObjectMeta{}, err
 	}

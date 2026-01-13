@@ -2,25 +2,31 @@ package breaker
 
 import (
 	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/joshqu1985/lego/container"
-	"golang.org/x/exp/rand"
 )
 
-type sreBreaker struct {
-	name       string
-	stat       *container.SlidingWindow[*statBucket]
-	k          float64
-	minRequest int64
-	random     *rand.Rand
-	randLock   sync.Mutex
-}
+type (
+	sreBreaker struct {
+		stat       *container.SlidingWindow[*statBucket]
+		name       string
+		k          float64
+		minRequest int64
+		lock       sync.Mutex
+	}
+
+	statBucket struct {
+		Access int64
+		Total  int64
+	}
+)
 
 func newSREBreaker(name string) Breaker {
-	buckets := []*statBucket{}
-	for i := 0; i < 20; i++ {
+	buckets := make([]*statBucket, 0)
+	for range 20 {
 		buckets = append(buckets, &statBucket{})
 	}
 
@@ -29,63 +35,62 @@ func newSREBreaker(name string) Breaker {
 		k:          1.8,
 		stat:       container.NewSlidingWindow(time.Duration(300)*time.Millisecond, buckets),
 		minRequest: 100,
-		random:     rand.New(rand.NewSource(uint64(time.Now().UnixNano()))),
 	}
 }
 
-func (this *sreBreaker) Name() string {
-	return this.name
+func (srb *sreBreaker) Name() string {
+	return srb.name
 }
 
-func (this *sreBreaker) Allow() bool {
-	total, access := this.summary()
-	requests := this.k * float64(access)
+func (srb *sreBreaker) Allow() bool {
+	total, access := srb.summary()
+	requests := srb.k * float64(access)
 
-	if total < this.minRequest || float64(total) < requests {
+	if total < srb.minRequest || float64(total) < requests {
 		return true
 	}
 
 	failRate := math.Max(0, (float64(total)-requests)/float64(total+1))
-	return this.judgeAllow(failRate)
+
+	return srb.judgeAllow(failRate)
 }
 
-func (this *sreBreaker) MarkPass() {
-	this.stat.Add(1)
+func (srb *sreBreaker) MarkPass() {
+	srb.stat.Add(1)
 }
 
-func (this *sreBreaker) MarkFail() {
-	this.stat.Add(0)
+func (srb *sreBreaker) MarkFail() {
+	srb.stat.Add(0)
 }
 
-func (this *sreBreaker) summary() (int64, int64) {
+func (srb *sreBreaker) summary() (int64, int64) {
 	var (
-		total, access int64
+		total  int64
+		access int64
 	)
-	this.stat.Range(func(bucket *statBucket) {
+	srb.stat.Range(func(bucket *statBucket) {
 		total += bucket.Total
 		access += bucket.Access
 	})
+
 	return total, access
 }
 
-func (this *sreBreaker) judgeAllow(failRate float64) (allow bool) {
-	this.randLock.Lock()
-	allow = this.random.Float64() >= failRate
-	this.randLock.Unlock()
-	return
+func (srb *sreBreaker) judgeAllow(failRate float64) bool {
+	var allow bool
+	srb.lock.Lock()
+	allow = rand.Float64() >= failRate //nolint:gosec
+	srb.lock.Unlock()
+
+	return allow
 }
 
-type statBucket struct {
-	Access int64
-	Total  int64
+func (srb *statBucket) Add(val int64) {
+	srb.Access += val
+	srb.Total++
 }
 
-func (this *statBucket) Add(val int64) {
-	this.Access += val
-	this.Total++
-}
-
-func (this *statBucket) Reset() {
-	this.Access = 0
-	this.Total = 0
+func (srb *statBucket) Reset() {
+	srb.Access = 0
+	srb.Total = 0
 }

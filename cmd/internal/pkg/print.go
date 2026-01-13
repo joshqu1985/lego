@@ -5,15 +5,16 @@ import (
 	"text/template"
 )
 
-func Print(key, tpl string, data interface{}) string {
+func Print(key, tpl string, data any) string {
 	tmpl, err := template.New(key).Parse(tpl)
 	if err != nil {
 		panic(err)
 	}
 
 	buffer := bytes.Buffer{}
-	if err := tmpl.Execute(&buffer, data); err != nil {
-		panic(err)
+	if xerr := tmpl.Execute(&buffer, data); xerr != nil {
+		panic(xerr)
 	}
+
 	return buffer.String()
 }

@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/go-resty/resty/v2"
+
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
 type Client struct {
-	target string
 	client *resty.Client
+	target string
 }
 
 func NewClient(target string, opts ...Option) (*Client, error) {
@@ -40,9 +41,10 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 		}
 
 		method := req.Method + ":" + target + u.Path
-		if err := ClientBreakerAllow(method); err != nil {
-			return err
+		if xerr := ClientBreakerAllow(method); xerr != nil {
+			return xerr
 		}
+
 		return nil
 	})
 	client.OnAfterResponse(func(c *resty.Client, resp *resty.Response) error {
@@ -54,6 +56,7 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 		method := resp.Request.Method + ":" + target + u.Path
 		ClientBreakerMark(method, resp.StatusCode())
 		ClientMetrics(method, resp.Time().Milliseconds(), resp.StatusCode())
+
 		return nil
 	})
 	client.SetTimeout(option.Timeout)
@@ -64,10 +67,10 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 	}, nil
 }
 
-func (this *Client) Target() string {
-	return this.target
+func (c *Client) Target() string {
+	return c.target
 }
 
-func (this *Client) Request() *resty.Request {
-	return this.client.R()
+func (c *Client) Request() *resty.Request {
+	return c.client.R()
 }

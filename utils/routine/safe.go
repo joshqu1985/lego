@@ -10,21 +10,24 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Safe 对函数调用包装 防止panic
+// Safe 对函数调用包装 防止panic.
 func Safe(fn func()) (err error) {
 	defer func() {
-		if rec := recover(); rec != nil {
-			glog.Errorf("[PANIC] recover stack:%s err:%v\n", string(debug.Stack()), rec)
-			if _, ok := rec.(error); ok {
-				err = rec.(error)
-			} else {
-				err = fmt.Errorf("%+v", rec)
-			}
-			err = errors.Wrap(err, FunctionName(fn))
+		rec := recover()
+		if rec == nil {
+			return
 		}
+		glog.Errorf("[PANIC] recover stack:%s err:%v\n", string(debug.Stack()), rec)
+		if _, ok := rec.(error); ok {
+			err, _ = rec.(error)
+		} else {
+			err = fmt.Errorf("%+v", rec)
+		}
+		err = errors.Wrap(err, FunctionName(fn))
 	}()
 
 	fn()
+
 	return err
 }
 

@@ -9,16 +9,20 @@ import (
 	"github.com/aliyun/alibabacloud-oss-go-sdk-v2/oss/credentials"
 )
 
+const (
+	FORMAT_OSS = "https://%s." + ENDPOINT_OSS + "/%s"
+)
+
 type OssClient struct {
 	client   *oss.Client
-	option   options
 	endpoint string
 	region   string
 	bucket   string
 	domain   string
+	option   options
 }
 
-func NewOssClient(conf Config, option options) (*OssClient, error) {
+func NewOssClient(conf *Config, option options) (*OssClient, error) {
 	provider := credentials.NewStaticCredentialsProvider(conf.AccessId, conf.AccessSecret, "")
 	cfg := oss.LoadDefaultConfig().WithCredentialsProvider(provider).
 		WithRegion(conf.Region)
@@ -34,9 +38,9 @@ func NewOssClient(conf Config, option options) (*OssClient, error) {
 	}, nil
 }
 
-func (this *OssClient) Get(ctx context.Context, key string, data io.Writer) error {
-	resp, err := this.client.GetObject(ctx, &oss.GetObjectRequest{
-		Bucket: oss.Ptr(this.bucket),
+func (osc *OssClient) Get(ctx context.Context, key string, data io.Writer) error {
+	resp, err := osc.client.GetObject(ctx, &oss.GetObjectRequest{
+		Bucket: oss.Ptr(osc.bucket),
 		Key:    oss.Ptr(key),
 	})
 	if err != nil {
@@ -45,48 +49,52 @@ func (this *OssClient) Get(ctx context.Context, key string, data io.Writer) erro
 	defer resp.Body.Close()
 
 	_, err = io.Copy(data, resp.Body)
+
 	return err
 }
 
-func (this *OssClient) Put(ctx context.Context, key string, data io.Reader) (string, error) {
-	_, err := this.client.PutObject(ctx, &oss.PutObjectRequest{
-		Bucket: oss.Ptr(this.bucket),
+func (osc *OssClient) Put(ctx context.Context, key string, data io.Reader) (string, error) {
+	_, err := osc.client.PutObject(ctx, &oss.PutObjectRequest{
+		Bucket: oss.Ptr(osc.bucket),
 		Key:    oss.Ptr(key),
 		Body:   data,
 	})
 	if err != nil {
 		return "", err
 	}
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+
+	if osc.domain != "" {
+		return fmt.Sprintf("%s/%s", osc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.oss-%s.aliyuncs.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_OSS, osc.bucket, osc.region, key), nil
 }
 
-func (this *OssClient) GetFile(ctx context.Context, key, dstfile string) error {
-	downloader := this.client.NewDownloader(func(d *oss.DownloaderOptions) {
-		d.PartSize = this.option.BulkSize
-		d.ParallelNum = this.option.Concurrency
+func (osc *OssClient) GetFile(ctx context.Context, key, dstfile string) error {
+	downloader := osc.client.NewDownloader(func(d *oss.DownloaderOptions) {
+		d.PartSize = osc.option.BulkSize
+		d.ParallelNum = osc.option.Concurrency
 	})
 	opts := func(do *oss.DownloaderOptions) {}
 
 	args := &oss.GetObjectRequest{
-		Bucket: oss.Ptr(this.bucket),
+		Bucket: oss.Ptr(osc.bucket),
 		Key:    oss.Ptr(key),
 	}
 	_, err := downloader.DownloadFile(ctx, args, dstfile, opts)
+
 	return err
 }
 
-func (this *OssClient) PutFile(ctx context.Context, key, srcfile string) (string, error) {
-	uploader := this.client.NewUploader(func(u *oss.UploaderOptions) {
-		u.PartSize = this.option.BulkSize
-		u.ParallelNum = this.option.Concurrency
+func (osc *OssClient) PutFile(ctx context.Context, key, srcfile string) (string, error) {
+	uploader := osc.client.NewUploader(func(u *oss.UploaderOptions) {
+		u.PartSize = osc.option.BulkSize
+		u.ParallelNum = osc.option.Concurrency
 	})
 	opts := func(u *oss.UploaderOptions) {}
 
 	args := &oss.PutObjectRequest{
-		Bucket: oss.Ptr(this.bucket),
+		Bucket: oss.Ptr(osc.bucket),
 		Key:    oss.Ptr(key),
 	}
 	_, err := uploader.UploadFile(ctx, args, srcfile, opts)
@@ -94,22 +102,23 @@ func (this *OssClient) PutFile(ctx context.Context, key, srcfile string) (string
 		return "", err
 	}
 
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	if osc.domain != "" {
+		return fmt.Sprintf("%s/%s", osc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.oss-%s.aliyuncs.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_OSS, osc.bucket, osc.region, key), nil
 }
 
-func (this *OssClient) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
+func (osc *OssClient) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
 	args := &oss.ListObjectsV2Request{
-		Bucket:            oss.Ptr(this.bucket),
+		Bucket:            oss.Ptr(osc.bucket),
 		Prefix:            oss.Ptr(prefix),
 		ContinuationToken: oss.Ptr(nextToken),
 		MaxKeys:           5,
 	}
 
 	continueToken := ""
-	resp, err := this.client.ListObjectsV2(ctx, args)
+	resp, err := osc.client.ListObjectsV2(ctx, args)
 	if err != nil {
 		return nil, "", err
 	}
@@ -121,12 +130,13 @@ func (this *OssClient) List(ctx context.Context, prefix, nextToken string) ([]Ob
 	for _, content := range resp.Contents {
 		items = append(items, ObjectMeta{Key: *content.Key, ContentLength: content.Size})
 	}
+
 	return items, continueToken, nil
 }
 
-func (this *OssClient) Head(ctx context.Context, key string) (ObjectMeta, error) {
-	resp, err := this.client.HeadObject(ctx, &oss.HeadObjectRequest{
-		Bucket: oss.Ptr(this.bucket),
+func (osc *OssClient) Head(ctx context.Context, key string) (ObjectMeta, error) {
+	resp, err := osc.client.HeadObject(ctx, &oss.HeadObjectRequest{
+		Bucket: oss.Ptr(osc.bucket),
 		Key:    oss.Ptr(key),
 	})
 	if err != nil {

@@ -4,10 +4,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/golang/glog"
 	"github.com/spf13/cobra"
 
 	"github.com/joshqu1985/lego/cmd/internal/pkg"
+	"github.com/joshqu1985/lego/logs"
 )
 
 var (
@@ -24,15 +24,15 @@ var (
 	PackageName string
 )
 
-func init() {
-	Cmd.Flags().StringVarP(&FlagClientType, "type", "t", "", "client type (http、grpc)")
-	Cmd.MarkFlagRequired("type")
+func Init() {
+	Cmd.Flags().StringVarP(&FlagClientType, pkg.StringType, "t", "", "client type (http、grpc)")
+	_ = Cmd.MarkFlagRequired(pkg.StringType)
 
-	Cmd.Flags().StringVarP(&FlagCodesDst, "dst", "d", "", "generated codes dir")
-	Cmd.MarkFlagRequired("dst")
+	Cmd.Flags().StringVarP(&FlagCodesDst, pkg.StringDst, "d", "", "generated codes dir")
+	_ = Cmd.MarkFlagRequired(pkg.StringDst)
 
-	Cmd.Flags().StringVarP(&FlagProtoFile, "proto", "", "", "proto file path")
-	Cmd.MarkFlagRequired("proto")
+	Cmd.Flags().StringVarP(&FlagProtoFile, pkg.StringProto, "", "", "proto file path")
+	_ = Cmd.MarkFlagRequired(pkg.StringProto)
 }
 
 func run(_ *cobra.Command, args []string) {
@@ -40,57 +40,89 @@ func run(_ *cobra.Command, args []string) {
 	FlagCodesDst = filepath.Dir(FlagCodesDst)
 
 	if err := MkdirDirs(FlagCodesDst); err != nil {
-		glog.Error(err)
+		logs.Error(err)
+
 		return
 	}
 
 	tree, err := pkg.Parse(FlagProtoFile)
 	if err != nil {
-		glog.Error(err)
+		logs.Error(err)
+
 		return
 	}
 
-	files := []pkg.File{}
+	files := make([]pkg.File, 0)
 	if FlagClientType == "http" {
-		if err := MkdirDirs(FlagCodesDst + "/" + PackageName); err != nil {
-			glog.Error(err)
+		rfiles, xerr := GenRest(tree)
+		if xerr != nil {
 			return
 		}
-
-		mfile, err := genRestModel(PackageName, FlagProtoFile, tree)
-		if err != nil {
-			glog.Error(err)
-			return
-		}
-		files = append(files, mfile)
-
-		rfile, err := genRestRequest(PackageName, FlagProtoFile, tree)
-		if err != nil {
-			glog.Error(err)
-			return
-		}
-		files = append(files, rfile)
+		files = append(files, rfiles...)
 	} else {
-		if err := genRpcProtoFile(PackageName, FlagProtoFile, FlagCodesDst); err != nil {
-			glog.Error(err)
+		gfiles, xerr := GenGrpc(tree)
+		if xerr != nil {
 			return
 		}
-
-		file, err := genRpcRequest(PackageName, FlagProtoFile, tree)
-		if err != nil {
-			glog.Error(err)
-			return
-		}
-		files = append(files, file)
+		files = append(files, gfiles...)
 	}
-	// TODO _test.go .md
 
 	pkg.Writes(FlagCodesDst, files)
+}
+
+func GenRest(tree *pkg.Tree) ([]pkg.File, error) {
+	files := make([]pkg.File, 0)
+	if err := MkdirDirs(FlagCodesDst + "/" + PackageName); err != nil {
+		logs.Error(err)
+
+		return files, err
+	}
+
+	mfile, err := genRestModel(PackageName, FlagProtoFile, tree)
+	if err != nil {
+		logs.Error(err)
+
+		return files, err
+	}
+	files = append(files, mfile)
+
+	rfile, err := genRestRequest(PackageName, FlagProtoFile, tree)
+	if err != nil {
+		logs.Error(err)
+
+		return files, err
+	}
+
+	files = append(files, rfile)
+
+	return files, nil
+}
+
+func GenGrpc(tree *pkg.Tree) ([]pkg.File, error) {
+	files := make([]pkg.File, 0)
+
+	if err := genRpcProtoFile(PackageName, FlagProtoFile, FlagCodesDst); err != nil {
+		logs.Error(err)
+
+		return files, err
+	}
+
+	file, err := genRpcRequest(PackageName, FlagProtoFile, tree)
+	if err != nil {
+		logs.Error(err)
+
+		return files, err
+	}
+
+	files = append(files, file)
+
+	return files, nil
 }
 
 func MkdirDirs(dst string) error {
 	if _, err := os.Stat(dst); err == nil {
 		return nil
 	}
+
 	return pkg.Mkdir(dst)
 }

@@ -12,21 +12,14 @@ type (
 	RouterRegister func(*grpc.Server)
 
 	Option func(o *options)
+
+	options struct {
+		Naming         naming.Naming
+		RouterRegister RouterRegister
+		Timeout        time.Duration
+		Metrics        bool
+	}
 )
-
-type options struct {
-	// Timeout
-	Timeout time.Duration
-
-	// Naming
-	Naming naming.Naming
-
-	// RouterRegister
-	RouterRegister RouterRegister
-
-	// Metrics
-	Metrics bool
-}
 
 // WithTimeout set timeout.
 func WithTimeout(timeout time.Duration) Option {

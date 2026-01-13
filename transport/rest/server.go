@@ -2,34 +2,44 @@ package rest
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/joshqu1985/lego/logs"
 	"github.com/joshqu1985/lego/metrics"
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
 type (
-	// Router 避免业务代码直接引用
+	// Router 避免业务代码直接引用.
 	Router  = gin.Engine
 	Context = gin.Context
+
+	Server struct {
+		naming   naming.Naming
+		httpsrv  *http.Server
+		router   *Router
+		quitChan chan os.Signal
+		Name     string
+		Addr     string
+		option   options
+		lock     sync.RWMutex
+	}
 )
 
-type Server struct {
-	Name string
-	Addr string
-
-	naming naming.Naming
-	router *Router
-	option options
-}
+var (
+	StringBrokenPipe      = "broken pipe"
+	StringConnectionReset = "connection reset by peer"
+)
 
 func NewServer(name, addr string, opts ...Option) (*Server, error) {
 	var option options
@@ -41,81 +51,112 @@ func NewServer(name, addr string, opts ...Option) (*Server, error) {
 		option.Naming = naming.NewPass(&naming.Config{})
 	}
 	if option.RouterRegister == nil {
-		return nil, fmt.Errorf("router register function is nil")
+		return nil, errors.New("router register function is nil")
 	}
 
 	server := &Server{
-		Name:   name,
-		Addr:   addr,
-		naming: option.Naming,
-		router: gin.New(),
-		option: option,
+		Name:     name,
+		Addr:     addr,
+		naming:   option.Naming,
+		router:   gin.New(),
+		option:   option,
+		quitChan: make(chan os.Signal, 1),
 	}
+	signal.Notify(server.quitChan, syscall.SIGINT, syscall.SIGTERM)
+
 	server.router.Use(ServerRecover())
 	server.router.Use(ServerCors())
 	server.router.Use(ServerMetrics())
 
-	{
-		server.healthRegister()
-		server.pprofRegister()
-		server.metricRegister()
-	}
+	server.healthRegister()
+	server.pprofRegister()
+	server.metricRegister()
 	option.RouterRegister(server.router)
 
 	return server, nil
 }
 
-func (this *Server) Start() error {
-	if err := this.naming.Register(this.Name, this.Addr); err != nil {
+func (s *Server) Start() error {
+	if err := s.naming.Register(s.Name, s.Addr); err != nil {
 		return err
 	}
 
-	httpsrv := &http.Server{Handler: this.router, Addr: this.Addr}
+	s.lock.Lock()
+	s.httpsrv = &http.Server{
+		Handler:           s.router,
+		Addr:              s.Addr,
+		ReadHeaderTimeout: time.Second,
+	}
+	s.lock.Unlock()
 
+	errChan := make(chan error, 1)
 	go func() {
-		if err := httpsrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
+		if err := s.httpsrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("http server err:%w", err)
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("Shutting down server...")
+	// 等待信号或错误
+	select {
+	case err := <-errChan:
+		// 处理服务错误
+		_ = s.naming.Deregister(s.Name)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = s.httpsrv.Shutdown(ctx)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := httpsrv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown: ", err)
+		return err
+	case <-s.quitChan:
+		// 处理优雅关闭
+		logs.Info("Shutting down server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.httpsrv.Shutdown(ctx); err != nil {
+			logs.Errorf("Server shutdown error: %v\n", err)
+		}
+		_ = s.naming.Deregister(s.Name)
+		logs.Info("Server exited")
+
+		return nil
+	}
+}
+
+func (s *Server) Close() error {
+	select {
+	case s.quitChan <- syscall.SIGTERM:
+		// 信号已发送
+	default:
+		// 通道已满，避免阻塞
 	}
 
-	log.Println("Server exiting")
 	return nil
 }
 
-func (this *Server) AddMiddleware(inter gin.HandlerFunc) {
-	this.router.Use(inter)
+func (s *Server) AddMiddleware(inter gin.HandlerFunc) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.router.Use(inter)
 }
 
-func (this *Server) healthRegister() {
-	this.router.GET("/ping", func(ctx *Context) { ctx.String(200, "pong") })
+func (s *Server) healthRegister() {
+	s.router.GET("/ping", func(ctx *Context) { ctx.String(200, "pong") })
 }
 
-func (this *Server) pprofRegister() {
-	this.router.GET("/debug/pprof/", gin.WrapF(pprof.Index))
-	this.router.GET("/debug/pprof/cmdline", gin.WrapF(pprof.Cmdline))
-	this.router.GET("/debug/pprof/profile", gin.WrapF(pprof.Profile))
-	this.router.GET("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
-	this.router.GET("/debug/pprof/trace", gin.WrapF(pprof.Trace))
-	this.router.GET("/debug/pprof/allocs", gin.WrapF(pprof.Handler("allocs").ServeHTTP))
-	this.router.GET("/debug/pprof/goroutine", gin.WrapF(pprof.Handler("goroutine").ServeHTTP))
-	this.router.GET("/debug/pprof/heap", gin.WrapF(pprof.Handler("heap").ServeHTTP))
-	this.router.GET("/debug/pprof/mutex", gin.WrapF(pprof.Handler("mutex").ServeHTTP))
-	this.router.GET("/debug/pprof/threadcreate", gin.WrapF(pprof.Handler("threadcreate").ServeHTTP))
+func (s *Server) pprofRegister() {
+	s.router.GET("/debug/pprof/", gin.WrapF(pprof.Index))
+	s.router.GET("/debug/pprof/cmdline", gin.WrapF(pprof.Cmdline))
+	s.router.GET("/debug/pprof/profile", gin.WrapF(pprof.Profile))
+	s.router.GET("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
+	s.router.GET("/debug/pprof/trace", gin.WrapF(pprof.Trace))
+	s.router.GET("/debug/pprof/allocs", gin.WrapF(pprof.Handler("allocs").ServeHTTP))
+	s.router.GET("/debug/pprof/goroutine", gin.WrapF(pprof.Handler("goroutine").ServeHTTP))
+	s.router.GET("/debug/pprof/heap", gin.WrapF(pprof.Handler("heap").ServeHTTP))
+	s.router.GET("/debug/pprof/mutex", gin.WrapF(pprof.Handler("mutex").ServeHTTP))
+	s.router.GET("/debug/pprof/threadcreate", gin.WrapF(pprof.Handler("threadcreate").ServeHTTP))
 }
 
-func (this *Server) metricRegister() {
-	if this.option.Metrics {
-		metrics.ServeGIN(this.router)
+func (s *Server) metricRegister() {
+	if s.option.Metrics {
+		metrics.ServeGIN(s.router)
 	}
 }

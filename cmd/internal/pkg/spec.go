@@ -2,74 +2,86 @@ package pkg
 
 import "github.com/antlr4-go/antlr/v4"
 
-type ParseTopContext interface {
-	GetStart() antlr.Token
-	GetStop() antlr.Token
-	GetParser() antlr.Parser
-}
+const (
+	StringType  = "type"
+	StringDst   = "dst"
+	StringProto = "proto"
+	StringForm  = "form"
+	StringAuth  = "auth"
+	StringDB    = "db"
+	StringHost  = "host"
+)
 
-type Tree struct {
-	Package  string
-	Imports  []string
-	Options  map[string]string
-	Enums    []*EnumNode
-	Structs  []*StructNode
-	Services []*ServiceNode
-}
+type (
+	ParseTopContext interface {
+		GetStart() antlr.Token
+		GetStop() antlr.Token
+		GetParser() antlr.Parser
+	}
 
-type EnumNode struct {
-	Name     string
-	Document string
-	Fields   []*EnumField
-}
+	Tree struct {
+		Package  string
+		Imports  []string
+		Options  map[string]string
+		Enums    []*EnumNode
+		Structs  []*StructNode
+		Services []*ServiceNode
+	}
 
-type StructNode struct {
-	Name      string
-	Document  string
-	Fields    []*StructField
-	MapFields []*StructMap
-	Options   map[string]string
-}
+	EnumNode struct {
+		Name     string
+		Document string
+		Fields   []*EnumField
+	}
 
-type ServiceNode struct {
-	Name     string
-	Document string
-	Methods  []*ServiceMethod
-}
+	StructNode struct {
+		Options   map[string]string
+		Name      string
+		Document  string
+		Fields    []*StructField
+		MapFields []*StructMap
+	}
 
-type EnumField struct {
-	Name    string
-	Value   int
-	Comment string
-}
+	ServiceNode struct {
+		Name     string
+		Document string
+		Methods  []*ServiceMethod
+	}
 
-type StructField struct {
-	Repeated   bool
-	Name       string
-	Type       string
-	Tag        string
-	Comment    string
-	TypeObject bool
-	TypeName   string
-}
+	EnumField struct {
+		Name    string
+		Comment string
+		Value   int
+	}
 
-type StructMap struct {
-	Name    string
-	KeyType string
-	ValType string
-	Tag     string
-	Comment string
-}
+	StructField struct {
+		Name       string
+		Type       string
+		Tag        string
+		Comment    string
+		TypeName   string
+		Repeated   bool
+		TypeObject bool
+	}
 
-type ServiceMethod struct {
-	Name     string
-	Document string
-	ReqName  string
-	ResName  string
-	Options  map[string]string // cmd / uri
-}
+	StructMap struct {
+		Name    string
+		KeyType string
+		ValType string
+		Tag     string
+		Comment string
+	}
 
-type OptionConst struct {
-	Name     string
-	Constant string
-}
+	ServiceMethod struct {
+		Options  map[string]string
+		Name     string
+		Document string
+		ReqName  string
+		ResName  string
+	}
+
+	OptionConst struct {
+		Name     string
+		Constant string
+	}
+)

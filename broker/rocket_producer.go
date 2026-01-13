@@ -2,22 +2,28 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"time"
 
-	rocket "github.com/apache/rocketmq-clients/golang/v5"
 	"github.com/apache/rocketmq-clients/golang/v5/credentials"
+
+	rocket "github.com/apache/rocketmq-clients/golang/v5"
 )
 
-func NewRocketProducer(conf Config) (Producer, error) {
+type rocketProducer struct {
+	client rocket.Producer
+	topics map[string]string
+}
+
+func NewRocketProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, fmt.Errorf("endpoints is empty")
+		return nil, errors.New(ErrEndpointsEmpty)
 	}
-	os.Setenv("mq.consoleAppender.enabled", "true")
+	os.Setenv(MQConsoleAppenderEnabled, "true")
 	rocket.ResetLogger()
 
-	topicVals := []string{}
+	topicVals := make([]string, 0)
 	for _, topicVal := range conf.Topics {
 		topicVals = append(topicVals, topicVal)
 	}
@@ -35,8 +41,8 @@ func NewRocketProducer(conf Config) (Producer, error) {
 		return nil, err
 	}
 
-	if err := client.Start(); err != nil {
-		return nil, err
+	if xerr := client.Start(); xerr != nil {
+		return nil, xerr
 	}
 
 	return &rocketProducer{
@@ -45,19 +51,18 @@ func NewRocketProducer(conf Config) (Producer, error) {
 	}, nil
 }
 
-type rocketProducer struct {
-	client rocket.Producer
-	topics map[string]string
+func (rp *rocketProducer) Send(ctx context.Context, topic string, msg *Message) error {
+	return rp.SendDelay(ctx, topic, msg, 0)
 }
 
-func (this *rocketProducer) Send(ctx context.Context, topic string, msg *Message, args ...int64) error {
+func (rp *rocketProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return fmt.Errorf("message is nil")
+		return errors.New(ErrMessageIsNil)
 	}
 
-	topicVal, ok := this.topics[topic]
+	topicVal, ok := rp.topics[topic]
 	if !ok {
-		return fmt.Errorf("topic not found")
+		return errors.New(ErrTopicNotFound)
 	}
 
 	data := rocket.Message{
@@ -75,17 +80,18 @@ func (this *rocketProducer) Send(ctx context.Context, topic string, msg *Message
 		data.AddProperty(key, val)
 	}
 
-	if len(args) != 0 && args[0] > time.Now().Unix() {
-		data.SetDelayTimestamp(time.Unix(args[0], 0))
+	if stamp > time.Now().Unix() {
+		data.SetDelayTimestamp(time.Unix(stamp, 0))
 	}
 
-	receives, err := this.client.Send(ctx, &data)
+	receives, err := rp.client.Send(ctx, &data)
 	if len(receives) > 0 {
 		msg.MessageId = receives[0].MessageID
 	}
+
 	return err
 }
 
-func (this *rocketProducer) Close() error {
-	return this.client.GracefulStop()
+func (rp *rocketProducer) Close() error {
+	return rp.client.GracefulStop()
 }

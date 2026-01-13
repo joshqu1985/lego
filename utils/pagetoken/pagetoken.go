@@ -12,11 +12,12 @@ type PageToken struct {
 
 func Encode(ptoken *PageToken) string {
 	bytes, _ := json.Marshal(ptoken)
+
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
 func Decode(s string, defaultSize int) (PageToken, error) {
-	if len(s) == 0 {
+	if s == "" {
 		return PageToken{Size: defaultSize}, nil
 	}
 
@@ -25,5 +26,8 @@ func Decode(s string, defaultSize int) (PageToken, error) {
 	if err != nil {
 		return token, err
 	}
-	return token, json.Unmarshal(bytes, &token)
+
+	err = json.Unmarshal(bytes, &token)
+
+	return token, err
 }

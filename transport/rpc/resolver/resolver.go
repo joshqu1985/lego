@@ -9,6 +9,10 @@ import (
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
+type nopResolver struct {
+	cc resolver.ClientConn
+}
+
 func New(n naming.Naming) (resolver.Builder, error) {
 	switch n.Name() {
 	case "etcd":
@@ -18,16 +22,13 @@ func New(n naming.Naming) (resolver.Builder, error) {
 	case "pass":
 		return newPass(n)
 	}
+
 	return nil, fmt.Errorf("unsupported naming: %s", n.Name())
 }
 
 func BuildTarget(n naming.Naming, target string) string {
 	return fmt.Sprintf("%s://%s/%s", n.Name(),
 		strings.Join(n.Endpoints(), ","), target)
-}
-
-type nopResolver struct {
-	cc resolver.ClientConn
 }
 
 func (r *nopResolver) Close() {

@@ -9,9 +9,20 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+
+	clientv3 "go.etcd.io/etcd/client/v3" //nolint:gomodguard
+
 	"github.com/joshqu1985/lego/utils/routine"
-	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+type etcdConfig struct {
+	opts   options
+	conf   *SourceConfig
+	client *clientv3.Client
+	prefix string
+	data   ChangeSet
+	sync.RWMutex
+}
 
 func NewEtcd(conf *SourceConfig, opts options) (Configor, error) {
 	c := &etcdConfig{
@@ -34,59 +45,52 @@ func NewEtcd(conf *SourceConfig, opts options) (Configor, error) {
 	if err := c.watch(); err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
-type etcdConfig struct {
-	conf   *SourceConfig
-	opts   options
-	client *clientv3.Client
-	prefix string
+func (ec *etcdConfig) Load(v any) error {
+	ec.RLock()
+	defer ec.RUnlock()
 
-	sync.RWMutex
-	data ChangeSet
+	return ec.opts.Encoding.Unmarshal(ec.data.Value, v)
 }
 
-func (this *etcdConfig) Load(v any) error {
-	this.RLock()
-	defer this.RUnlock()
-	return this.opts.Encoding.Unmarshal(this.data.Value, v)
-}
-
-func (this *etcdConfig) watch() error {
-	if this.opts.WatchChange == nil {
+func (ec *etcdConfig) watch() error {
+	if ec.opts.WatchChange == nil {
 		return nil
 	}
 
-	ch := this.client.Watcher.Watch(context.Background(), this.prefix, clientv3.WithPrefix())
-	routine.Go(func() { this.run(ch) })
+	ch := ec.client.Watch(context.Background(), ec.prefix, clientv3.WithPrefix())
+	routine.Go(func() { ec.run(ch) })
 
 	return nil
 }
 
-func (this *etcdConfig) read() (ChangeSet, error) {
-	resp, err := this.client.Get(context.Background(), this.prefix, clientv3.WithPrefix())
+func (ec *etcdConfig) read() (ChangeSet, error) {
+	resp, err := ec.client.Get(context.Background(), ec.prefix, clientv3.WithPrefix())
 	if err != nil {
 		return ChangeSet{}, err
 	}
 
 	if resp == nil || len(resp.Kvs) == 0 {
-		return ChangeSet{}, fmt.Errorf("data not found: %s", this.prefix)
+		return ChangeSet{}, fmt.Errorf("data not found: %s", ec.prefix)
 	}
 
 	var buffer bytes.Buffer
 	for _, kv := range resp.Kvs {
-		buffer.WriteString(fmt.Sprintf("%s\n", string(kv.Value)))
+		_, _ = buffer.WriteString(string(kv.Value) + "\n")
 	}
 	data := ChangeSet{Timestamp: time.Now(), Value: buffer.Bytes()}
 
-	this.Lock()
-	this.data = data
-	this.Unlock()
+	ec.Lock()
+	ec.data = data
+	ec.Unlock()
+
 	return data, nil
 }
 
-func (this *etcdConfig) run(ch clientv3.WatchChan) {
+func (ec *etcdConfig) run(ch clientv3.WatchChan) {
 	for {
 		select {
 		case resp, ok := <-ch:
@@ -96,25 +100,29 @@ func (this *etcdConfig) run(ch clientv3.WatchChan) {
 			if len(resp.Events) == 0 {
 				continue
 			}
-			data, err := this.read()
+			data, err := ec.read()
 			if err != nil {
 				glog.Errorf("etcd config read err:%v", err)
+
 				continue
 			}
-			routine.Safe(func() {
-				this.opts.WatchChange(data)
+			_ = routine.Safe(func() {
+				ec.opts.WatchChange(data)
 			})
 		}
 	}
 }
 
-func (this *etcdConfig) init(conf *SourceConfig) (err error) {
+func (ec *etcdConfig) init(conf *SourceConfig) error {
 	config := clientv3.Config{
 		Endpoints:   conf.Endpoints,
 		Username:    conf.AccessKey,
 		Password:    conf.SecretKey,
 		DialTimeout: 3 * time.Second,
 	}
-	this.client, err = clientv3.New(config)
+
+	var err error
+	ec.client, err = clientv3.New(config)
+
 	return err
 }

@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,9 +11,30 @@ import (
 	"github.com/rs/xid"
 )
 
-func NewRedisProducer(conf Config) (Producer, error) {
+const (
+	zsetFormat = "{%s_delay}.zset"
+	hashFormat = "{%s_delay}.hash"
+)
+
+type redisProducer struct {
+	client          *redis.Client
+	topics          map[string]string
+	StreamMaxLength int64
+}
+
+var delayScript = redis.NewScript(`
+local key = ARGV[1]
+local val = ARGV[2]
+local score = tonumber(ARGV[3])
+
+redis.call("zadd", KEYS[1], score, key)
+redis.call("hset", KEYS[2], key, val)
+return 1
+	`)
+
+func NewRedisProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, fmt.Errorf("endpoints is empty")
+		return nil, errors.New(ErrEndpointsEmpty)
 	}
 
 	client := redis.NewClient(&redis.Options{
@@ -32,38 +54,37 @@ func NewRedisProducer(conf Config) (Producer, error) {
 	}, nil
 }
 
-type redisProducer struct {
-	client          *redis.Client
-	topics          map[string]string
-	StreamMaxLength int64
+func (rp *redisProducer) Send(ctx context.Context, topic string, msg *Message) error {
+	return rp.SendDelay(ctx, topic, msg, 0)
 }
 
-func (this *redisProducer) Send(ctx context.Context, topic string, msg *Message, args ...int64) error {
+func (rp *redisProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return fmt.Errorf("message is nil")
+		return errors.New(ErrMessageIsNil)
 	}
 
-	topicVal, ok := this.topics[topic]
+	topicVal, ok := rp.topics[topic]
 	if !ok {
-		return fmt.Errorf("topic not found")
+		return errors.New(ErrTopicNotFound)
 	}
 	msg.Topic = topicVal
 
-	if this.CountStream(ctx, topicVal)+this.CountDelay(ctx, topicVal) > MaxMessageCount {
-		return fmt.Errorf("queue is full")
+	if rp.CountStream(ctx, topicVal)+rp.CountDelay(ctx, topicVal) > MaxMessageCount {
+		return errors.New(ErrQueueIsFull)
 	}
 
-	if len(args) != 0 && args[0] > time.Now().Unix() {
-		return this.SendDelay(ctx, msg, args[0])
+	if stamp > time.Now().Unix() {
+		return rp.sendDelay(ctx, msg, stamp)
 	}
-	return this.SendStream(ctx, msg)
+
+	return rp.sendStream(ctx, msg)
 }
 
-func (this *redisProducer) Close() error {
-	return nil
+func (rp *redisProducer) Close() error {
+	return rp.client.Close()
 }
 
-func (this *redisProducer) SendStream(ctx context.Context, msg *Message) error {
+func (rp *redisProducer) sendStream(ctx context.Context, msg *Message) error {
 	values := map[string]any{"payload": msg.Payload}
 	if len(msg.Properties) != 0 {
 		data, _ := json.Marshal(&msg.Properties)
@@ -73,49 +94,34 @@ func (this *redisProducer) SendStream(ctx context.Context, msg *Message) error {
 	var err error
 	args := &redis.XAddArgs{
 		Stream: msg.Topic,
-		MaxLen: this.StreamMaxLength,
+		MaxLen: rp.StreamMaxLength,
 		Values: values,
 	}
-	msg.MessageId, err = this.client.XAdd(ctx, args).Result()
+	msg.MessageId, err = rp.client.XAdd(ctx, args).Result()
+
 	return err
 }
 
-func (this *redisProducer) CountStream(ctx context.Context, topic string) int64 {
-	return this.client.XLen(ctx, topic).Val()
+func (rp *redisProducer) CountStream(ctx context.Context, topic string) int64 {
+	return rp.client.XLen(ctx, topic).Val()
 }
 
-var (
-	delayScript = redis.NewScript(`
-local key = ARGV[1]
-local val = ARGV[2]
-local score = tonumber(ARGV[3])
-
-redis.call("zadd", KEYS[1], score, key)
-redis.call("hset", KEYS[2], key, val)
-return 1
-	`)
-)
-
-const (
-	zsetFormat = "{%s_delay}.zset"
-	hashFormat = "{%s_delay}.hash"
-)
-
-func (this *redisProducer) SendDelay(ctx context.Context, msg *Message, timestamp int64) error {
+func (rp *redisProducer) sendDelay(ctx context.Context, msg *Message, timestamp int64) error {
 	keys := []string{fmt.Sprintf(zsetFormat, msg.Topic), fmt.Sprintf(hashFormat, msg.Topic)}
 	data, _ := json.Marshal(msg)
 	vals := []any{xid.New().String(), data, timestamp}
 
-	ok, err := delayScript.Run(ctx, this.client, keys, vals...).Bool()
+	ok, err := delayScript.Run(ctx, rp.client, keys, vals...).Bool()
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("duplicate message")
+		return errors.New("duplicate message")
 	}
+
 	return nil
 }
 
-func (this *redisProducer) CountDelay(ctx context.Context, topic string) int64 {
-	return this.client.ZCard(ctx, fmt.Sprintf(zsetFormat, topic)).Val()
+func (rp *redisProducer) CountDelay(ctx context.Context, topic string) int64 {
+	return rp.client.ZCard(ctx, fmt.Sprintf(zsetFormat, topic)).Val()
 }

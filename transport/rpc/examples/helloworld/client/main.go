@@ -2,15 +2,15 @@ package main
 
 import (
 	"context"
-	// "log"
-	// "time"
 
 	"github.com/joshqu1985/lego/transport/naming"
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/helloworld/helloworld"
 )
 
-func init() {
-	_, _ = naming.Init(naming.Config{
+var n naming.Naming
+
+func Init() {
+	n, _ = naming.New(&naming.Config{
 		// Source:    "etcd",
 		// Endpoints: []string{"127.0.0.1:9379"},
 		Source:    "nacos",
@@ -20,12 +20,11 @@ func init() {
 }
 
 func main() {
-	client := NewHelloworld()
+	Init()
 
-	for i := 0; i < 20000000; i++ {
+	client := NewHelloworld(n)
+
+	for range 20000000 {
 		_, _ = client.SayHello(context.Background(), &pb.HelloRequest{Name: "world"})
-		// log.Printf("Greeting: resp:%s err:%v", resp.GetMessage(), err)
-
-		// time.Sleep(time.Millisecond * 500)
 	}
 }

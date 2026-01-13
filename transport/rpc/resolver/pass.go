@@ -9,22 +9,23 @@ import (
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
+type passBuilder struct {
+	naming naming.Naming
+}
+
 func newPass(n naming.Naming) (resolver.Builder, error) {
 	return &passBuilder{
 		naming: n,
 	}, nil
 }
 
-type passBuilder struct {
-	naming naming.Naming
+func (pb *passBuilder) Scheme() string {
+	return pb.naming.Name()
 }
 
-func (this *passBuilder) Scheme() string {
-	return this.naming.Name()
-}
-
-func (this *passBuilder) Build(target resolver.Target, cc resolver.ClientConn,
-	_ resolver.BuildOptions) (resolver.Resolver, error) {
+func (pb *passBuilder) Build(target resolver.Target, cc resolver.ClientConn, //nolint:gocritic // target is heavy
+	_ resolver.BuildOptions,
+) (resolver.Resolver, error) {
 	endpoints := strings.FieldsFunc(path.Base(target.URL.Path), func(r rune) bool {
 		return r == ','
 	})
@@ -39,5 +40,6 @@ func (this *passBuilder) Build(target resolver.Target, cc resolver.ClientConn,
 	}); err != nil {
 		return nil, err
 	}
+
 	return &nopResolver{cc: cc}, nil
 }

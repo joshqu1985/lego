@@ -1,11 +1,5 @@
 package logs
 
-import (
-	"github.com/joshqu1985/lego/broker"
-)
-
-type Level int8
-
 const (
 	DEBUG Level = iota - 1
 	INFO
@@ -13,35 +7,31 @@ const (
 	ERROR
 	PANIC
 	FATAL
-)
 
-const (
 	Development = 0
 	Production  = 1
 )
 
-type Option func(o *options)
+type (
+	Level int8
 
-type options struct {
-	Environment int
-	Level       Level
-	Writers     []string
-	WriterFile  *FileOption
-	WriterKafka *KafkaOption
-}
+	Option func(o *options)
 
-type KafkaOption struct {
-	Producer broker.Producer
-	Topic    string
-}
+	options struct {
+		WriterFile  *FileOption
+		Writers     []string
+		Environment int
+		Level       Level
+	}
 
-type FileOption struct {
-	Filename   string // 日志文件路径
-	MaxSize    int    // 单文件最大尺寸 MB
-	MaxBackups int    // 最大备份数
-	MaxAge     int    // 最大保留天数
-	Compress   bool   // 是否压缩
-}
+	FileOption struct {
+		Filename   string // 日志文件路径
+		MaxSize    int    // 单文件最大尺寸 MB
+		MaxBackups int    // 最大备份数
+		MaxAge     int    // 最大保留天数
+		Compress   bool   // 是否压缩
+	}
+)
 
 func WithDevelopment() Option {
 	return func(o *options) {
@@ -65,7 +55,7 @@ func WithLevel(level Level) Option {
 // WithWriterFile output to file.
 func WithWriterFile(fileWriter *FileOption) Option {
 	return func(o *options) {
-		o.Writers = append(o.Writers, "file")
+		o.Writers = append(o.Writers, OUTPUT_FILE)
 		o.WriterFile = fileWriter
 	}
 }
@@ -73,17 +63,6 @@ func WithWriterFile(fileWriter *FileOption) Option {
 // WithWriterConsole output to console.
 func WithWriterConsole() Option {
 	return func(o *options) {
-		o.Writers = append(o.Writers, "console")
-	}
-}
-
-// WithWriterKafka output to kafka.
-func WithWriterKafka(producer broker.Producer, topic string) Option {
-	return func(o *options) {
-		o.WriterKafka = &KafkaOption{
-			Producer: producer,
-			Topic:    topic,
-		}
-		o.Writers = append(o.Writers, "kafka")
+		o.Writers = append(o.Writers, OUTPUT_CONSOLE)
 	}
 }

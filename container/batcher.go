@@ -7,15 +7,20 @@ import (
 	"github.com/joshqu1985/lego/utils/routine"
 )
 
-type Batcher struct {
-	interval     time.Duration //
-	bulkSize     int64         // 批量数据的最大条数
-	entries      []any         //
-	sync.RWMutex               //
+type (
+	Batcher struct {
+		queue     chan []any
+		ticker    *time.Ticker
+		done      chan struct{}
+		entries   []any
+		interval  time.Duration
+		bulkSize  int64
+		queueSize int64
+		sync.RWMutex
+	}
 
-	queueSize int64      //
-	queue     chan []any // 存放批量数据的队列
-}
+	BatcherOption func(o *Batcher)
+)
 
 func NewBatcher(opts ...BatcherOption) *Batcher {
 	var batcher Batcher
@@ -35,60 +40,76 @@ func NewBatcher(opts ...BatcherOption) *Batcher {
 	batcher.queue = make(chan []any, batcher.queueSize)
 
 	routine.Go(func() { batcher.intervalFlush() })
+
 	return &batcher
 }
 
-func (this *Batcher) Put(data any) {
-	this.Lock()
-	defer this.Unlock()
+func (b *Batcher) Put(data any) {
+	b.Lock()
+	defer b.Unlock()
 
-	this.entries = append(this.entries, data)
-	if len(this.entries) >= int(this.bulkSize) {
-		this.flush()
+	b.entries = append(b.entries, data)
+	if len(b.entries) >= int(b.bulkSize) {
+		b.flush()
 	}
 }
 
-func (this *Batcher) Queue() chan []any {
-	return this.queue
+func (b *Batcher) Queue() chan []any {
+	return b.queue
 }
 
-func (this *Batcher) intervalFlush() {
-	ticker := time.NewTicker(this.interval)
+func (b *Batcher) Close() error {
+	close(b.done)
+	b.ticker.Stop()
+
+	b.Lock()
+	defer b.Unlock()
+
+	if len(b.entries) > 0 {
+		b.flush()
+	}
+	return nil
+}
+
+func (b *Batcher) intervalFlush() {
+	b.ticker = time.NewTicker(b.interval)
+	defer b.ticker.Stop()
+
 	for {
 		select {
-		case <-ticker.C:
-			this.Lock()
-			this.flush()
-			this.Unlock()
+		case <-b.ticker.C:
+			b.Lock()
+			b.flush()
+			b.Unlock()
+		case <-b.done:
+			return
 		}
 	}
 }
 
-func (this *Batcher) flush() {
-	if len(this.entries) == 0 {
+func (b *Batcher) flush() {
+	if len(b.entries) == 0 {
 		return
 	}
-	this.queue <- this.entries
-	this.entries = make([]any, 0, this.bulkSize)
+	b.queue <- b.entries
+	b.entries = make([]any, 0, b.bulkSize)
 }
 
-type BatcherOption func(o *Batcher)
-
-// WithInterval 设置批量的最大等待时间
+// WithInterval 设置批量的最大等待时间.
 func WithInterval(interval time.Duration) BatcherOption {
 	return func(b *Batcher) {
 		b.interval = interval
 	}
 }
 
-// WithBulkSize 设置批量的最大条数
+// WithBulkSize 设置批量的最大条数.
 func WithBulkSize(bulkSize int64) BatcherOption {
 	return func(b *Batcher) {
 		b.bulkSize = bulkSize
 	}
 }
 
-// WithQueueSize 设置队列的最大长度
+// WithQueueSize 设置队列的最大长度.
 func WithQueueSize(queueSize int64) BatcherOption {
 	return func(b *Batcher) {
 		b.queueSize = queueSize

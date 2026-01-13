@@ -8,7 +8,7 @@ import (
 )
 
 func TestPulsarBroker(t *testing.T) {
-	consumer, err := NewPulsarConsumer(Config{
+	consumer, err := NewPulsarConsumer(&Config{
 		Endpoints: []string{"pulsar://localhost:6650"},
 		GroupId:   "g1",
 		Topics:    map[string]string{"test": "persistent://public/default/test"},
@@ -25,7 +25,7 @@ func TestPulsarBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, err := NewPulsarProducer(Config{
+	producer, err := NewPulsarProducer(&Config{
 		Endpoints: []string{"pulsar://localhost:6650"},
 		Topics:    map[string]string{"test": "persistent://public/default/test"},
 	})

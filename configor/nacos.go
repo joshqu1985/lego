@@ -12,6 +12,16 @@ import (
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 )
 
+type nacosConfig struct {
+	opts   options
+	client config_client.IConfigClient
+	conf   *SourceConfig
+	data   ChangeSet
+	sync.RWMutex
+}
+
+var defaultGroup = "DEFAULT_GROUP"
+
 func NewNacos(conf *SourceConfig, opts options) (Configor, error) {
 	c := &nacosConfig{
 		opts: opts,
@@ -29,29 +39,20 @@ func NewNacos(conf *SourceConfig, opts options) (Configor, error) {
 	if err := c.watch(); err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
-type nacosConfig struct {
-	conf   *SourceConfig
-	opts   options
-	client config_client.IConfigClient
+func (nc *nacosConfig) Load(v any) error {
+	nc.RLock()
+	defer nc.RUnlock()
 
-	sync.RWMutex
-	data ChangeSet
+	return nc.opts.Encoding.Unmarshal(nc.data.Value, v)
 }
 
-func (this *nacosConfig) Load(v any) error {
-	this.RLock()
-	defer this.RUnlock()
-	return this.opts.Encoding.Unmarshal(this.data.Value, v)
-}
-
-var defaultGroup = "DEFAULT_GROUP"
-
-func (this *nacosConfig) read() (ChangeSet, error) {
-	value, err := this.client.GetConfig(vo.ConfigParam{
-		DataId: this.conf.AppId,
+func (nc *nacosConfig) read() (ChangeSet, error) {
+	value, err := nc.client.GetConfig(vo.ConfigParam{
+		DataId: nc.conf.AppId,
 		Group:  defaultGroup,
 	})
 	if err != nil {
@@ -60,38 +61,39 @@ func (this *nacosConfig) read() (ChangeSet, error) {
 
 	data := ChangeSet{Timestamp: time.Now(), Value: []byte(value)}
 
-	this.Lock()
-	this.data = data
-	this.Unlock()
+	nc.Lock()
+	nc.data = data
+	nc.Unlock()
+
 	return data, nil
 }
 
-func (this *nacosConfig) watch() error {
-	if this.opts.WatchChange == nil {
+func (nc *nacosConfig) watch() error {
+	if nc.opts.WatchChange == nil {
 		return nil
 	}
 
-	return this.client.ListenConfig(vo.ConfigParam{
-		DataId:   this.conf.AppId,
+	return nc.client.ListenConfig(vo.ConfigParam{
+		DataId:   nc.conf.AppId,
 		Group:    defaultGroup,
-		OnChange: this.callback,
+		OnChange: nc.callback,
 	})
 }
 
-func (this *nacosConfig) callback(_, _, _, value string) {
+func (nc *nacosConfig) callback(_, _, _, value string) {
 	data := ChangeSet{
 		Timestamp: time.Now(),
 		Value:     []byte(value),
 	}
 
-	this.Lock()
-	this.data = data
-	this.Unlock()
+	nc.Lock()
+	nc.data = data
+	nc.Unlock()
 
-	this.opts.WatchChange(data)
+	nc.opts.WatchChange(data)
 }
 
-func (this *nacosConfig) init(conf *SourceConfig) (err error) {
+func (nc *nacosConfig) init(conf *SourceConfig) error {
 	clientConfig := *constant.NewClientConfig(
 		constant.WithNamespaceId(conf.Cluster),
 		constant.WithNotLoadCacheAtStart(true),
@@ -112,9 +114,12 @@ func (this *nacosConfig) init(conf *SourceConfig) (err error) {
 			Port:   iport,
 		})
 	}
-	this.client, err = clients.NewConfigClient(vo.NacosClientParam{
+
+	var err error
+	nc.client, err = clients.NewConfigClient(vo.NacosClientParam{
 		ClientConfig:  &clientConfig,
 		ServerConfigs: serverConfigs,
 	})
+
 	return err
 }

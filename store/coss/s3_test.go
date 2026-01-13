@@ -8,7 +8,7 @@ import (
 
 func InitS3() (*S3Client, error) {
 	opts := options{}
-	return NewS3Client(Config{
+	return NewS3Client(&Config{
 		Source:       "s3",
 		Endpoint:     "http://127.0.0.1:9000",
 		Region:       "cn",

@@ -21,5 +21,6 @@ func New(enc string) Encoding {
 	case "toml":
 		return new(toml.Encoding)
 	}
+
 	return nil
 }

@@ -1,18 +1,39 @@
 package naming
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"sync"
 
-	"github.com/golang/glog"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients"
 	"github.com/nacos-group/nacos-sdk-go/v2/clients/naming_client"
 	"github.com/nacos-group/nacos-sdk-go/v2/common/constant"
 	"github.com/nacos-group/nacos-sdk-go/v2/model"
 	"github.com/nacos-group/nacos-sdk-go/v2/vo"
 	"github.com/samber/lo"
+
+	"github.com/joshqu1985/lego/logs"
+)
+
+type (
+	nacos struct {
+		client   naming_client.INamingClient
+		config   *Config
+		services map[string]*nacosService
+		key      string
+		val      string
+		sync.RWMutex
+	}
+
+	nacosService struct {
+		client    naming_client.INamingClient
+		values    map[string]string
+		key       string
+		listeners []func()
+		sync.RWMutex
+	}
 )
 
 func NewNacos(conf *Config) (Naming, error) {
@@ -21,39 +42,31 @@ func NewNacos(conf *Config) (Naming, error) {
 		config:   conf,
 	}
 
-	return c, c.init(conf)
+	err := c.init(conf)
+
+	return c, err
 }
 
-type nacos struct {
-	key    string
-	val    string
-	client naming_client.INamingClient
-	config *Config
-
-	services map[string]*nacosService
-	sync.RWMutex
+func (n *nacos) Endpoints() []string {
+	return n.config.Endpoints
 }
 
-func (this *nacos) Endpoints() []string {
-	return this.config.Endpoints
+func (n *nacos) Name() string {
+	return SOURCE_NACOS
 }
 
-func (this *nacos) Name() string {
-	return "nacos"
-}
+func (n *nacos) Register(key, val string) error {
+	n.key, n.val = key, val
 
-func (this *nacos) Register(key, val string) error {
-	this.key, this.val = key, val
-
-	if this.client == nil {
-		return fmt.Errorf("etcd client is nil")
+	if n.client == nil {
+		return ErrClientNil
 	}
 
-	return this.register()
+	return n.register()
 }
 
-func (this *nacos) Deregister(_ string) error {
-	host, port, err := net.SplitHostPort(this.val)
+func (n *nacos) Deregister(_ string) error {
+	host, port, err := net.SplitHostPort(n.val)
 	if err != nil {
 		return err
 	}
@@ -63,42 +76,49 @@ func (this *nacos) Deregister(_ string) error {
 	}
 
 	request := vo.DeregisterInstanceParam{
-		ServiceName: this.key,
+		ServiceName: n.key,
 		Ip:          host,
 		Port:        iport,
 		Ephemeral:   true,
 	}
-	_, err = this.client.DeregisterInstance(request)
+	_, err = n.client.DeregisterInstance(request)
+
 	return err
 }
 
-func (this *nacos) Service(key string) RegService {
-	this.Lock()
-	defer this.Unlock()
+func (n *nacos) Service(key string) RegService {
+	n.Lock()
 
-	service, ok := this.services[key]
+	service, ok := n.services[key]
 	if ok {
+		n.Unlock()
+
 		return service
 	}
 
 	service = &nacosService{
 		key:    key,
-		client: this.client,
+		client: n.client,
 	}
-	go func() { _ = service.Watch() }()
+	n.services[key] = service
+	n.Unlock()
 
-	this.services[key] = service
+	go func(s *nacosService) {
+		if err := service.Watch(); err != nil {
+			logs.Errorf("nacos watch err:%v", err)
+		}
+	}(service)
 
 	return service
 }
 
-func (this *nacos) Close() {
-	if this.client != nil {
-		this.client.CloseClient()
+func (n *nacos) Close() {
+	if n.client != nil {
+		n.client.CloseClient()
 	}
 }
 
-func (this *nacos) init(conf *Config) (err error) {
+func (n *nacos) init(conf *Config) error {
 	clientConfig := *constant.NewClientConfig(
 		constant.WithNamespaceId(conf.Cluster),
 		constant.WithNotLoadCacheAtStart(true),
@@ -121,17 +141,20 @@ func (this *nacos) init(conf *Config) (err error) {
 			Port:   iport,
 		})
 	}
-	this.client, err = clients.NewNamingClient(
+
+	var err error
+	n.client, err = clients.NewNamingClient(
 		vo.NacosClientParam{
 			ClientConfig:  &clientConfig,
 			ServerConfigs: serverConfigs,
 		},
 	)
+
 	return err
 }
 
-func (this *nacos) register() error {
-	host, port, err := net.SplitHostPort(this.val)
+func (n *nacos) register() error {
+	host, port, err := net.SplitHostPort(n.val)
 	if err != nil {
 		return err
 	}
@@ -141,7 +164,7 @@ func (this *nacos) register() error {
 	}
 
 	request := vo.RegisterInstanceParam{
-		ServiceName: this.key,
+		ServiceName: n.key,
 		Ip:          host,
 		Port:        iport,
 		Enable:      true,
@@ -149,40 +172,34 @@ func (this *nacos) register() error {
 		Weight:      1.0,
 		Ephemeral:   true,
 	}
-	success, err := this.client.RegisterInstance(request)
+	success, err := n.client.RegisterInstance(request)
 	if err != nil || !success {
-		glog.Errorf("register nacos failed %v name:%s ip:%s port:%d", err, this.key, host, port)
+		logs.Errorf("register nacos failed %v name:%s ip:%s port:%d", err, n.key, host, port)
 	}
+
 	return err
 }
 
-type nacosService struct {
-	key    string
-	client naming_client.INamingClient
+// ----------------- nacosService -----------------
 
-	values map[string]string
-	sync.RWMutex
-	listeners []func()
+func (ns *nacosService) Name() string {
+	return ns.key
 }
 
-func (this *nacosService) Name() string {
-	return this.key
-}
-
-func (this *nacosService) Addrs() ([]string, error) {
-	if this.client == nil {
-		return nil, fmt.Errorf("nacos client is nil")
+func (ns *nacosService) Addrs() ([]string, error) {
+	if ns.client == nil {
+		return nil, errors.New("nacos client is nil")
 	}
 
-	this.RLock()
-	addrs := this.values
-	this.RUnlock()
+	ns.RLock()
+	addrs := ns.values
+	ns.RUnlock()
 
 	if len(addrs) != 0 {
 		return lo.Values(addrs), nil
 	}
 
-	addrs, err := this.load()
+	addrs, err := ns.load()
 	if err != nil {
 		return nil, err
 	}
@@ -190,15 +207,15 @@ func (this *nacosService) Addrs() ([]string, error) {
 	return lo.Values(addrs), nil
 }
 
-func (this *nacosService) AddListener(f func()) {
-	this.Lock()
-	this.listeners = append(this.listeners, f)
-	this.Unlock()
+func (ns *nacosService) AddListener(f func()) {
+	ns.Lock()
+	ns.listeners = append(ns.listeners, f)
+	ns.Unlock()
 }
 
-func (this *nacosService) load() (map[string]string, error) {
-	service, err := this.client.GetService(vo.GetServiceParam{
-		ServiceName: this.key,
+func (ns *nacosService) load() (map[string]string, error) {
+	service, err := ns.client.GetService(vo.GetServiceParam{
+		ServiceName: ns.key,
 	})
 	if err != nil {
 		return nil, err
@@ -212,23 +229,26 @@ func (this *nacosService) load() (map[string]string, error) {
 		addrs[item.InstanceId] = fmt.Sprintf("%s:%d", item.Ip, item.Port)
 	}
 
-	this.Lock()
-	this.values = addrs
-	this.Unlock()
+	ns.Lock()
+	ns.values = addrs
+	ns.Unlock()
+
 	return addrs, nil
 }
 
-func (this *nacosService) Watch() error {
+func (ns *nacosService) Watch() error {
 	param := &vo.SubscribeParam{
-		ServiceName:       this.key,
-		SubscribeCallback: this.processEvents,
+		ServiceName:       ns.key,
+		SubscribeCallback: ns.processEvents,
 	}
-	return this.client.Subscribe(param)
+
+	return ns.client.Subscribe(param)
 }
 
-func (this *nacosService) processEvents(items []model.Instance, err error) {
+func (ns *nacosService) processEvents(items []model.Instance, err error) {
 	if err != nil {
-		glog.Errorf("nacos subscribe callback err:%v", err)
+		logs.Errorf("nacos subscribe callback err:%v", err)
+
 		return
 	}
 
@@ -239,10 +259,10 @@ func (this *nacosService) processEvents(items []model.Instance, err error) {
 		}
 		addrs[item.InstanceId] = fmt.Sprintf("%s:%d", item.Ip, item.Port)
 	}
-	this.Lock()
-	this.values = addrs
-	listeners := this.listeners
-	this.Unlock()
+	ns.Lock()
+	ns.values = addrs
+	listeners := ns.listeners
+	ns.Unlock()
 
 	for _, listener := range listeners {
 		listener()

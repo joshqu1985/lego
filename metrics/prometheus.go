@@ -8,22 +8,35 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+type (
+	promeCounter struct {
+		counter *prometheus.CounterVec
+	}
+
+	promeGauge struct {
+		gauge *prometheus.GaugeVec
+	}
+
+	promeHistogram struct {
+		histogram *prometheus.HistogramVec
+	}
+)
+
+var RouterPath = "/metrics"
+
 func prometheusHTTP() {
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle(RouterPath, promhttp.Handler())
 }
 
 func prometheusGIN(router *gin.Engine) {
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	router.GET(RouterPath, gin.WrapH(promhttp.Handler()))
 }
 
-type promeCounter struct {
-	counter *prometheus.CounterVec
-}
-
-func newPromeCounter(opts CounterOpt) CounterVec {
+func newPromeCounter(opts *CounterOpt) CounterVec {
 	vec := prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
+		Help:      opts.Help,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)
 
@@ -42,14 +55,11 @@ func (p *promeCounter) Inc(labels ...string) {
 	}
 }
 
-type promeGauge struct {
-	gauge *prometheus.GaugeVec
-}
-
-func newPromeGauge(opts GaugeOpt) GaugeVec {
+func newPromeGauge(opts *GaugeOpt) GaugeVec {
 	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
+		Help:      opts.Help,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)
 
@@ -74,14 +84,11 @@ func (p *promeGauge) Sub(v float64, labels ...string) {
 	}
 }
 
-type promeHistogram struct {
-	histogram *prometheus.HistogramVec
-}
-
-func newPromeHistogram(opts HistogramOpt) HistogramVec {
+func newPromeHistogram(opts *HistogramOpt) HistogramVec {
 	vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: opts.Namespace,
 		Name:      opts.Name,
+		Help:      opts.Help,
 		Buckets:   opts.Buckets,
 	}, opts.Labels)
 	prometheus.MustRegister(vec)

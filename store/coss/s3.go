@@ -13,16 +13,20 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+const (
+	FORMAT_S3 = "https://%s." + ENDPOINT_S3 + "/%s"
+)
+
 type S3Client struct {
 	client   *s3.Client
-	option   options
 	endpoint string
 	region   string
 	bucket   string
 	domain   string
+	option   options
 }
 
-func NewS3Client(conf Config, option options) (*S3Client, error) {
+func NewS3Client(conf *Config, option options) (*S3Client, error) {
 	creads := credentials.NewStaticCredentialsProvider(conf.AccessId, conf.AccessSecret, "")
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithCredentialsProvider(creads))
 	if err != nil {
@@ -43,9 +47,9 @@ func NewS3Client(conf Config, option options) (*S3Client, error) {
 	}, nil
 }
 
-func (this *S3Client) Get(ctx context.Context, key string, data io.Writer) error {
-	resp, err := this.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(this.bucket),
+func (sc *S3Client) Get(ctx context.Context, key string, data io.Writer) error {
+	resp, err := sc.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(sc.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {
@@ -54,58 +58,61 @@ func (this *S3Client) Get(ctx context.Context, key string, data io.Writer) error
 	defer resp.Body.Close()
 
 	_, err = io.Copy(data, resp.Body)
+
 	return err
 }
 
-func (this *S3Client) Put(ctx context.Context, key string, data io.Reader) (string, error) {
-	_, err := this.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(this.bucket),
-		Key:    aws.String(key),
+func (sc *S3Client) Put(ctx context.Context, key string, data io.Reader) (string, error) {
+	_, err := sc.client.PutObject(ctx, &s3.PutObjectInput{
 		Body:   data,
+		Key:    aws.String(key),
+		Bucket: aws.String(sc.bucket),
 	})
 	if err != nil {
 		return "", err
 	}
 
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-bucket-intro.html
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	if sc.domain != "" {
+		return fmt.Sprintf("%s/%s", sc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_S3, sc.bucket, sc.region, key), nil
 }
 
-func (this *S3Client) GetFile(ctx context.Context, key, dstfile string) error {
+func (sc *S3Client) GetFile(ctx context.Context, key, dstfile string) error {
 	file, err := os.Create(dstfile)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	downloader := manager.NewDownloader(this.client, func(d *manager.Downloader) {
-		d.PartSize = this.option.BulkSize
-		d.Concurrency = this.option.Concurrency
+	downloader := manager.NewDownloader(sc.client, func(d *manager.Downloader) {
+		d.PartSize = sc.option.BulkSize
+		d.Concurrency = sc.option.Concurrency
 	})
 
 	_, err = downloader.Download(ctx, file, &s3.GetObjectInput{
-		Bucket: aws.String(this.bucket),
+		Bucket: aws.String(sc.bucket),
 		Key:    aws.String(key),
 	})
+
 	return err
 }
 
-func (this *S3Client) PutFile(ctx context.Context, key, srcfile string) (string, error) {
+func (sc *S3Client) PutFile(ctx context.Context, key, srcfile string) (string, error) {
 	reader, err := os.Open(srcfile)
 	if err != nil {
 		return "", err
 	}
 
-	uploader := manager.NewUploader(this.client, func(u *manager.Uploader) {
-		u.PartSize = this.option.BulkSize
-		u.Concurrency = this.option.Concurrency
+	uploader := manager.NewUploader(sc.client, func(u *manager.Uploader) {
+		u.PartSize = sc.option.BulkSize
+		u.Concurrency = sc.option.Concurrency
 	})
 
 	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(this.bucket),
+		Bucket: aws.String(sc.bucket),
 		Key:    aws.String(key),
 		Body:   reader,
 	})
@@ -113,15 +120,16 @@ func (this *S3Client) PutFile(ctx context.Context, key, srcfile string) (string,
 		return "", err
 	}
 
-	if this.domain != "" {
-		return fmt.Sprintf("%s/%s", this.domain, key), nil
+	if sc.domain != "" {
+		return fmt.Sprintf("%s/%s", sc.domain, key), nil
 	}
-	return fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", this.bucket, this.region, key), nil
+
+	return fmt.Sprintf(FORMAT_S3, sc.bucket, sc.region, key), nil
 }
 
-func (this *S3Client) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
+func (sc *S3Client) List(ctx context.Context, prefix, nextToken string) ([]ObjectMeta, string, error) {
 	args := &s3.ListObjectsV2Input{
-		Bucket:  aws.String(this.bucket),
+		Bucket:  aws.String(sc.bucket),
 		Prefix:  aws.String(prefix),
 		MaxKeys: aws.Int32(1000),
 	}
@@ -130,7 +138,7 @@ func (this *S3Client) List(ctx context.Context, prefix, nextToken string) ([]Obj
 	}
 
 	continueToken := ""
-	resp, err := this.client.ListObjectsV2(ctx, args)
+	resp, err := sc.client.ListObjectsV2(ctx, args)
 	if err != nil {
 		return nil, "", err
 	}
@@ -142,12 +150,13 @@ func (this *S3Client) List(ctx context.Context, prefix, nextToken string) ([]Obj
 	for _, content := range resp.Contents {
 		items = append(items, ObjectMeta{Key: *content.Key, ContentLength: *content.Size})
 	}
+
 	return items, continueToken, nil
 }
 
-func (this *S3Client) Head(ctx context.Context, key string) (ObjectMeta, error) {
-	resp, err := this.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(this.bucket),
+func (sc *S3Client) Head(ctx context.Context, key string) (ObjectMeta, error) {
+	resp, err := sc.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(sc.bucket),
 		Key:    aws.String(key),
 	})
 	if err != nil {

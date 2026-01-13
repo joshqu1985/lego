@@ -1,14 +1,19 @@
 package rpc
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"strconv"
+	"time"
 
 	"google.golang.org/grpc"
 
+	_ "net/http/pprof" //nolint:gosec
+
+	"github.com/joshqu1985/lego/logs"
 	"github.com/joshqu1985/lego/metrics"
 	"github.com/joshqu1985/lego/transport/naming"
 )
@@ -17,9 +22,11 @@ type Server struct {
 	Name string
 	Addr string
 
-	naming naming.Naming
-	router RouterRegister
-	option options
+	naming  naming.Naming
+	grpcSrv *grpc.Server
+	httpSrv *http.Server
+	router  RouterRegister
+	option  options
 
 	streamInterceptors []grpc.StreamServerInterceptor
 	unaryInterceptors  []grpc.UnaryServerInterceptor
@@ -35,7 +42,7 @@ func NewServer(name, addr string, opts ...Option) (*Server, error) {
 		option.Naming = naming.NewPass(&naming.Config{})
 	}
 	if option.RouterRegister == nil {
-		return nil, fmt.Errorf("router register function is nil")
+		return nil, errors.New("router register function is nil")
 	}
 
 	server := &Server{
@@ -52,43 +59,46 @@ func NewServer(name, addr string, opts ...Option) (*Server, error) {
 	return server, nil
 }
 
-func (this *Server) Start() error {
-	lis, err := net.Listen("tcp", this.Addr)
+func (s *Server) Start() error {
+	var lc net.ListenConfig
+	lis, err := lc.Listen(context.Background(), "tcp", s.Addr)
 	if err != nil {
 		return err
 	}
 
 	options := make([]grpc.ServerOption, 0)
 	options = append(options,
-		grpc.ChainUnaryInterceptor(this.unaryInterceptors...),
-		grpc.ChainStreamInterceptor(this.streamInterceptors...))
-	server := grpc.NewServer(options...)
+		grpc.ChainUnaryInterceptor(s.unaryInterceptors...),
+		grpc.ChainStreamInterceptor(s.streamInterceptors...))
+	s.grpcSrv = grpc.NewServer(options...)
 
-	if err := this.naming.Register(this.Name, this.Addr); err != nil {
-		return err
+	if xerr := s.naming.Register(s.Name, s.Addr); xerr != nil {
+		return xerr
 	}
 
-	this.router(server)
-	_ = this.httpServe(this.Addr)
+	s.router(s.grpcSrv)
+	if xerr := s.httpServe(s.Addr); xerr != nil {
+		logs.Error("health check http serve err:%v", xerr)
+	}
 
 	monitor := NewMonitor()
 	monitor.AddShutdownCallback(func() {
-		_ = this.naming.Deregister(this.Name)
-		server.GracefulStop()
+		_ = s.naming.Deregister(s.Name)
+		s.grpcSrv.GracefulStop()
 	})
 
-	return server.Serve(lis)
+	return s.grpcSrv.Serve(lis)
 }
 
-func (this *Server) AddUnaryInterceptors(inter grpc.UnaryServerInterceptor) {
-	this.unaryInterceptors = append(this.unaryInterceptors, inter)
+func (s *Server) AddUnaryInterceptors(inter grpc.UnaryServerInterceptor) {
+	s.unaryInterceptors = append(s.unaryInterceptors, inter)
 }
 
-func (this *Server) AddStreamInterceptors(inter grpc.StreamServerInterceptor) {
-	this.streamInterceptors = append(this.streamInterceptors, inter)
+func (s *Server) AddStreamInterceptors(inter grpc.StreamServerInterceptor) {
+	s.streamInterceptors = append(s.streamInterceptors, inter)
 }
 
-func (this *Server) httpServe(addr string) error {
+func (s *Server) httpServe(addr string) error {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return err
@@ -99,19 +109,26 @@ func (this *Server) httpServe(addr string) error {
 	}
 	endpoint := fmt.Sprintf("%s:%d", host, iport+1) // 端口+1
 
-	if this.option.Metrics {
+	if s.option.Metrics {
 		metrics.ServeHTTP()
 	}
-	this.HealthServeHandle()
+	s.HealthServeHandle()
 
+	s.httpSrv = &http.Server{
+		Addr:              endpoint,
+		ReadHeaderTimeout: time.Second,
+	}
 	go func() {
-		_ = http.ListenAndServe(endpoint, nil)
+		if xerr := s.httpSrv.ListenAndServe(); xerr != nil && xerr != http.ErrServerClosed {
+			logs.Error("health server err:%v", xerr)
+		}
 	}()
+
 	return nil
 }
 
-func (this *Server) HealthServeHandle() {
+func (s *Server) HealthServeHandle() {
 	http.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("pong"))
+		_, _ = w.Write([]byte("pong"))
 	})
 }

@@ -2,17 +2,28 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/apache/pulsar-client-go/pulsar"
+
 	"github.com/joshqu1985/lego/utils/routine"
 )
 
-// NewPulsarConsumer 创建PulsarConsumer
-func NewPulsarConsumer(conf Config) (Consumer, error) {
+// pulsarConsumer pulsar消费者结构.
+type pulsarConsumer struct {
+	client    pulsar.Client
+	consumer  pulsar.Consumer
+	topics    map[string]string
+	channel   chan pulsar.ConsumerMessage
+	callbacks map[string]ConsumeCallback
+	stopWork  chan struct{}
+}
+
+// NewPulsarConsumer 创建PulsarConsumer.
+func NewPulsarConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, fmt.Errorf("endpoints is empty")
+		return nil, errors.New(ErrEndpointsEmpty)
 	}
 
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -30,7 +41,7 @@ func NewPulsarConsumer(conf Config) (Consumer, error) {
 		stopWork:  make(chan struct{}, 1),
 	}
 
-	topicVals := []string{}
+	topicVals := make([]string, 0)
 	for _, topicVal := range conf.Topics {
 		topicVals = append(topicVals, topicVal)
 	}
@@ -45,45 +56,37 @@ func NewPulsarConsumer(conf Config) (Consumer, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return consumer, nil
 }
 
-// pulsarConsumer pulsar消费者结构
-type pulsarConsumer struct {
-	client    pulsar.Client
-	consumer  pulsar.Consumer
-	topics    map[string]string
-	channel   chan pulsar.ConsumerMessage
-	callbacks map[string]ConsumeCallback
-	stopWork  chan struct{}
-}
-
-func (this *pulsarConsumer) Register(topicKey string, f ConsumeCallback) error {
-	topicVal, ok := this.topics[topicKey]
+func (pc *pulsarConsumer) Register(topicKey string, f ConsumeCallback) error {
+	topicVal, ok := pc.topics[topicKey]
 	if !ok {
-		return fmt.Errorf("topic not found")
+		return errors.New(ErrTopicNotFound)
 	}
 
-	this.callbacks[topicVal] = f
+	pc.callbacks[topicVal] = f
+
 	return nil
 }
 
-func (this *pulsarConsumer) Start() error {
-	if len(this.callbacks) == 0 {
-		return fmt.Errorf("at least one consumer function registered")
+func (pc *pulsarConsumer) Start() error {
+	if len(pc.callbacks) == 0 {
+		return errors.New(ErrSubscriberNil)
 	}
 
 	for {
 		select {
-		case <-this.stopWork:
+		case <-pc.stopWork:
 			return nil
-		case cm := <-this.channel:
+		case cm := <-pc.channel:
 			msg := cm.Message
 			vals := strings.Split(msg.Topic(), "-partition-")
 			if len(vals) != 2 {
 				continue
 			}
-			fn, ok := this.callbacks[vals[0]]
+			fn, ok := pc.callbacks[vals[0]]
 			if !ok {
 				continue
 			}
@@ -95,21 +98,22 @@ func (this *pulsarConsumer) Start() error {
 			}
 			if err := routine.Safe(func() {
 				if err := fn(context.Background(), data); err == nil {
-					cm.Consumer.Ack(msg)
+					_ = cm.Ack(msg)
 				} else {
-					cm.Consumer.Nack(msg)
+					cm.Nack(msg)
 				}
 			}); err != nil {
 				// panic do not retry
-				cm.Consumer.Ack(msg)
+				_ = cm.Ack(msg)
 			}
 		}
 	}
 }
 
-func (this *pulsarConsumer) Close() error {
-	this.stopWork <- struct{}{}
-	this.consumer.Close()
-	this.client.Close()
+func (pc *pulsarConsumer) Close() error {
+	pc.stopWork <- struct{}{}
+	pc.consumer.Close()
+	pc.client.Close()
+
 	return nil
 }

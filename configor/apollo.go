@@ -2,6 +2,7 @@ package configor
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,6 +11,22 @@ import (
 	"github.com/apolloconfig/agollo/v4/env/config"
 	"github.com/apolloconfig/agollo/v4/storage"
 	"github.com/golang/glog"
+)
+
+type (
+	apolloConfig struct {
+		opts   options
+		client agollo.Client
+		conf   *SourceConfig
+		data   ChangeSet
+		sync.RWMutex
+	}
+
+	CustomChangeListener struct {
+		client       agollo.Client
+		apolloConfig *apolloConfig
+		notify       ChangeNotify
+	}
 )
 
 func NewApollo(conf *SourceConfig, opts options) (Configor, error) {
@@ -29,27 +46,20 @@ func NewApollo(conf *SourceConfig, opts options) (Configor, error) {
 	if err := c.watch(); err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
-type apolloConfig struct {
-	opts   options
-	conf   *SourceConfig
-	client agollo.Client
+func (ac *apolloConfig) Load(v any) error {
+	ac.RLock()
+	defer ac.RUnlock()
 
-	sync.RWMutex
-	data ChangeSet
+	return ac.opts.Encoding.Unmarshal(ac.data.Value, v)
 }
 
-func (this *apolloConfig) Load(v any) error {
-	this.RLock()
-	defer this.RUnlock()
-	return this.opts.Encoding.Unmarshal(this.data.Value, v)
-}
-
-func (this *apolloConfig) init(conf *SourceConfig) (err error) {
+func (ac *apolloConfig) init(conf *SourceConfig) error {
 	if len(conf.Endpoints) == 0 {
-		return fmt.Errorf("endpoints is empty")
+		return errors.New("endpoints is empty")
 	}
 
 	meta := &config.AppConfig{
@@ -60,58 +70,67 @@ func (this *apolloConfig) init(conf *SourceConfig) (err error) {
 		NamespaceName:  conf.Namespace,    // ex: application
 		IsBackupConfig: true,
 	}
-	this.client, err = agollo.StartWithConfig(func() (*config.AppConfig, error) {
+
+	var err error
+	ac.client, err = agollo.StartWithConfig(func() (*config.AppConfig, error) {
 		return meta, nil
 	})
+
 	return err
 }
 
-func (this *apolloConfig) read() (ChangeSet, error) {
-	cache := this.client.GetConfigCache(this.conf.Namespace)
+func (ac *apolloConfig) read() (ChangeSet, error) {
+	cache := ac.client.GetConfigCache(ac.conf.Namespace)
 	if cache == nil {
-		return ChangeSet{}, fmt.Errorf("apollo config cache is nil")
+		return ChangeSet{}, errors.New("apollo config cache is nil")
 	}
 
 	var buffer bytes.Buffer
-	cache.Range(func(key, value interface{}) bool {
-		buffer.WriteString(fmt.Sprintf("%s\n", value))
+	cache.Range(func(key, value any) bool {
+		_, _ = buffer.WriteString(fmt.Sprintf("%s\n", value))
+
 		return true
 	})
 	data := ChangeSet{Timestamp: time.Now(), Value: buffer.Bytes()}
 
-	this.Lock()
-	this.data = data
-	this.Unlock()
+	ac.Lock()
+	ac.data = data
+	ac.Unlock()
+
 	return data, nil
 }
 
-func (this *apolloConfig) watch() error {
-	if this.opts.WatchChange == nil {
+func (ac *apolloConfig) watch() error {
+	if ac.opts.WatchChange == nil {
 		return nil
 	}
 
 	listener := &CustomChangeListener{
-		client:       this.client,
-		apolloConfig: this,
-		notify:       this.opts.WatchChange,
+		client:       ac.client,
+		apolloConfig: ac,
+		notify:       ac.opts.WatchChange,
 	}
-	this.client.AddChangeListener(listener)
+	ac.client.AddChangeListener(listener)
+
 	return nil
 }
 
-type CustomChangeListener struct {
-	client       agollo.Client
-	apolloConfig *apolloConfig
-	notify       ChangeNotify
-}
-
 func (c *CustomChangeListener) OnChange(_ *storage.ChangeEvent) {
-	data, err := c.apolloConfig.read()
+	val, err := c.apolloConfig.read()
 	if err != nil {
 		glog.Errorf("apollo config read err:%v", err)
+
 		return
 	}
-	c.notify(data)
+
+	c.apolloConfig.Lock()
+	c.apolloConfig.data = val
+	data := c.apolloConfig.data
+	c.apolloConfig.Unlock()
+
+	if c.notify != nil {
+		c.notify(data)
+	}
 }
 
 func (c *CustomChangeListener) OnNewestChange(_ *storage.FullChangeEvent) {

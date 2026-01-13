@@ -5,8 +5,10 @@ import (
 	pb "github.com/joshqu1985/lego/transport/rpc/examples/route_guide/routeguide"
 )
 
-func init() {
-	_, _ = naming.Init(naming.Config{
+var n naming.Naming
+
+func Init() {
+	n, _ = naming.New(&naming.Config{
 		// Source:    "etcd",
 		// Endpoints: []string{"127.0.0.1:9379"},
 		Source:    "nacos",
@@ -16,7 +18,9 @@ func init() {
 }
 
 func main() {
-	client := NewRecordRouter()
+	Init()
+
+	client := NewRecordRouter(n)
 
 	// Looking for a valid feature
 	client.PrintFeature(&pb.Point{Latitude: 409146138, Longitude: -746188906})

@@ -2,7 +2,7 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"sync"
 	"time"
 
@@ -13,154 +13,206 @@ import (
 	"github.com/joshqu1985/lego/utils/utime"
 )
 
-func NewMemoryProducer(conf Config) (Producer, error) {
-	return &memoryProducer{
-		broker: getMemoryBroker(conf.Topics),
-	}, nil
-}
-
-type memoryProducer struct {
-	broker *memoryBroker
-}
-
-func (this *memoryProducer) Send(ctx context.Context, topic string, msg *Message, args ...int64) error {
-	if msg == nil {
-		return fmt.Errorf("message is nil")
-	}
-	msg.Topic = topic
-	msg.MessageId = xid.New().String()
-
-	data, ok := this.broker.queues.Load(topic)
-	if !ok {
-		return fmt.Errorf("topic not found")
+type (
+	memoryProducer struct {
+		broker *memoryBroker
 	}
 
-	queue, _ := data.(*TopicQueue)
-	if int64(queue.priority.Size()+queue.linked.Size()) > MaxMessageCount {
-		return fmt.Errorf("queue is full")
+	memoryBroker struct {
+		sublist    map[string][]Subscriber
+		stopDelay  chan struct{}
+		stopWorker chan struct{}
+		queues     sync.Map
+		sync.RWMutex
 	}
 
-	if len(args) != 0 && args[0] > time.Now().Unix() {
-		queue.priority.Put(msg, args[0])
-	} else {
-		queue.linked.Put(msg)
+	Subscriber struct {
+		output  chan Message
+		groupId string
 	}
-	return nil
-}
 
-func (this *memoryProducer) Close() error {
-	return nil
-}
+	TopicQueue struct {
+		linked   *container.Linked
+		priority *container.Priority
+	}
+)
 
 var (
 	broker *memoryBroker
 	once   sync.Once
+	lock   sync.RWMutex
 )
+
+func NewMemoryProducer(conf *Config) (Producer, error) {
+	mbroker := getMemoryBroker(conf.Topics)
+	if mbroker == nil {
+		return nil, errors.New("memory broker not initialized")
+	}
+
+	return &memoryProducer{broker: mbroker}, nil
+}
+
+func (mp *memoryProducer) Send(ctx context.Context, topic string, msg *Message) error {
+	return mp.SendDelay(ctx, topic, msg, 0)
+}
+
+func (mp *memoryProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
+	if msg == nil {
+		return errors.New(ErrMessageIsNil)
+	}
+	msg.Topic = topic
+	msg.MessageId = xid.New().String()
+
+	data, ok := mp.broker.queues.Load(topic)
+	if !ok {
+		return errors.New(ErrTopicNotFound)
+	}
+
+	queue, _ := data.(*TopicQueue)
+	if int64(queue.priority.Size()+queue.linked.Size()) > MaxMessageCount {
+		return errors.New(ErrQueueIsFull)
+	}
+
+	if stamp > time.Now().Unix() {
+		queue.priority.Put(msg, stamp)
+	} else {
+		queue.linked.Put(msg)
+	}
+
+	return nil
+}
+
+func (mp *memoryProducer) Close() error {
+	if mp.broker == nil {
+		return nil
+	}
+
+	return mp.broker.Close()
+}
 
 func getMemoryBroker(topics map[string]string) *memoryBroker {
 	once.Do(func() {
-		keys := []string{}
+		keys := make([]string, 0)
 		for key := range topics {
 			keys = append(keys, key)
 		}
+		lock.RLock()
 		broker = newMemoryBroker(keys)
+		lock.Unlock()
 	})
+
+	lock.RLock()
+	defer lock.RUnlock()
+
 	return broker
 }
 
 func newMemoryBroker(topics []string) *memoryBroker {
-	broker := &memoryBroker{
-		sublist: map[string][]Subscriber{},
+	mbroker := &memoryBroker{
+		sublist:    make(map[string][]Subscriber),
+		stopDelay:  make(chan struct{}, 1),
+		stopWorker: make(chan struct{}, 1),
 	}
 	for _, topic := range topics {
-		broker.queues.LoadOrStore(topic, &TopicQueue{
+		mbroker.queues.LoadOrStore(topic, &TopicQueue{
 			linked:   container.NewLinked(),
 			priority: container.NewPriority(),
 		})
 	}
-	broker.run()
-	return broker
+	mbroker.run()
+
+	return mbroker
 }
 
-type memoryBroker struct {
-	queues sync.Map
+func (mp *memoryBroker) Close() error {
+	mp.stopDelay <- struct{}{}
+	mp.stopWorker <- struct{}{}
 
-	sync.RWMutex
-	sublist map[string][]Subscriber
+	return nil
 }
 
-func (this *memoryBroker) run() {
-	this.queues.Range(func(key, val any) bool {
-		queue := val.(*TopicQueue)
-		routine.Go(func() { this.fetchWorker(key.(string), queue) })
-		routine.Go(func() { this.delayWorker(queue) })
+func (mp *memoryBroker) run() {
+	queuesCopy := make(map[string]*TopicQueue)
+	mp.queues.Range(func(key, val any) bool {
+		topic, _ := key.(string)
+		queue, _ := val.(*TopicQueue)
+		queuesCopy[topic] = queue
+
 		return true
 	})
-}
 
-func (this *memoryBroker) fetchWorker(topic string, queue *TopicQueue) {
-	attempt := 0
-	for {
-		utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
-
-		sublist, err := this.getSubscribers(topic)
-		if err != nil {
-			attempt++
-			continue
-		}
-
-		if len(sublist) == 0 {
-			attempt++
-			continue
-		}
-
-		data, err := queue.linked.Get()
-		if err != nil {
-			attempt++
-			continue
-		}
-		msg := data.(*Message)
-
-		for _, sub := range sublist {
-			sub.output <- *msg
-		}
-		attempt = 0
+	for topic, queue := range queuesCopy {
+		topicCopy, queueCopy := topic, queue
+		routine.Go(func() { mp.fetchWorker(topicCopy, queueCopy) })
+		routine.Go(func() { mp.delayWorker(queueCopy) })
 	}
 }
 
-func (this *memoryBroker) delayWorker(queue *TopicQueue) {
+func (mp *memoryBroker) fetchWorker(topic string, queue *TopicQueue) {
 	attempt := 0
 	for {
-		utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
+		select {
+		case <-mp.stopWorker:
+			return
+		default:
+			utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
+			sublist, err := mp.getSubscribers(topic)
+			if err != nil || len(sublist) == 0 {
+				attempt++
 
-		msg, score, err := queue.priority.Top()
-		if err != nil {
-			attempt++
-			continue
+				continue
+			}
+
+			data, err := queue.linked.Get()
+			if err != nil {
+				attempt++
+
+				continue
+			}
+			msg, _ := data.(*Message)
+
+			for _, sub := range sublist {
+				sub.output <- *msg
+			}
+			attempt = 0
 		}
-
-		if score > time.Now().Unix() {
-			attempt++
-			continue
-		}
-
-		if _, err := queue.priority.Get(); err != nil {
-			attempt++
-			continue
-		}
-
-		attempt = 0
-		queue.linked.Put(msg)
 	}
 }
 
-func (this *memoryBroker) getSubChannel(topic, groupId string) (<-chan Message, error) {
-	this.Lock()
-	defer this.Unlock()
+func (mp *memoryBroker) delayWorker(queue *TopicQueue) {
+	attempt := 0
+	for {
+		select {
+		case <-mp.stopDelay:
+			return
+		default:
+			utime.Sleep(backoff(attempt, 100*time.Millisecond, 1*time.Second))
+			msg, score, err := queue.priority.Top()
+			if err != nil || score > time.Now().Unix() {
+				attempt++
 
-	subs, ok := this.sublist[topic]
+				continue
+			}
+
+			if _, xerr := queue.priority.Get(); xerr != nil {
+				attempt++
+
+				continue
+			}
+
+			attempt = 0
+			queue.linked.Put(msg)
+		}
+	}
+}
+
+func (mp *memoryBroker) getSubChannel(topic, groupId string) (<-chan Message, error) {
+	mp.Lock()
+	defer mp.Unlock()
+
+	subs, ok := mp.sublist[topic]
 	if !ok {
-		return nil, fmt.Errorf("subscriber not found")
+		return nil, errors.New(ErrSubscriberNil)
 	}
 
 	for _, sub := range subs {
@@ -168,19 +220,21 @@ func (this *memoryBroker) getSubChannel(topic, groupId string) (<-chan Message, 
 			return sub.output, nil
 		}
 	}
-	return nil, fmt.Errorf("subscriber not found")
+
+	return nil, errors.New(ErrSubscriberNil)
 }
 
-func (this *memoryBroker) addSubscriber(topic, groupId string) {
-	this.Lock()
-	defer this.Unlock()
+func (mp *memoryBroker) addSubscriber(topic, groupId string) {
+	mp.Lock()
+	defer mp.Unlock()
 
-	subs, ok := this.sublist[topic]
+	subs, ok := mp.sublist[topic]
 	if !ok {
-		this.sublist[topic] = []Subscriber{{
+		mp.sublist[topic] = []Subscriber{{
 			groupId: groupId,
 			output:  make(chan Message, 100),
 		}}
+
 		return
 	}
 
@@ -194,52 +248,47 @@ func (this *memoryBroker) addSubscriber(topic, groupId string) {
 		groupId: groupId,
 		output:  make(chan Message, 100),
 	})
-	this.sublist[topic] = subs
+	mp.sublist[topic] = subs
 }
 
-func (this *memoryBroker) delSubscriber(topic, groupId string) {
-	this.Lock()
-	defer this.Unlock()
+func (mp *memoryBroker) delSubscriber(topic, groupId string) {
+	mp.Lock()
+	defer mp.Unlock()
 
-	subs, ok := this.sublist[topic]
+	subs, ok := mp.sublist[topic]
 	if !ok {
 		return
 	}
 
-	items := []Subscriber{}
+	items := make([]Subscriber, 0)
 	for _, sub := range subs {
 		if sub.groupId != groupId {
 			items = append(items, sub)
 		}
 	}
-	this.sublist[topic] = items
+	mp.sublist[topic] = items
 }
 
-func (this *memoryBroker) getSubscribers(topic string) ([]Subscriber, error) {
-	this.Lock()
-	defer this.Unlock()
+func (mp *memoryBroker) getSubscribers(topic string) ([]Subscriber, error) {
+	mp.RLock()
+	defer mp.RUnlock()
 
-	subs, ok := this.sublist[topic]
+	subs, ok := mp.sublist[topic]
 	if !ok {
-		return nil, fmt.Errorf("subscriber not found")
+		return nil, errors.New(ErrSubscriberNil)
 	}
+
+	result := make([]Subscriber, len(subs))
+	copy(result, subs)
+
 	return subs, nil
 }
 
-type Subscriber struct {
-	groupId string
-	output  chan Message
-}
-
-type TopicQueue struct {
-	linked   *container.Linked
-	priority *container.Priority
-}
-
-func backoff(attempt int, min time.Duration, max time.Duration) time.Duration {
-	d := time.Duration(attempt*attempt) * min
-	if d > max {
-		d = max
+func backoff(attempt int, minVal, maxVal time.Duration) time.Duration {
+	d := time.Duration(attempt*attempt) * minVal
+	if d > maxVal {
+		d = maxVal
 	}
+
 	return d
 }

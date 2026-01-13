@@ -16,7 +16,7 @@ var (
 
 func InitTestRedis() {
 	once.Do(func() {
-		rdb = New(Config{
+		rdb, _ = New(Config{
 			Endpoints: []string{"127.0.0.1:6379"},
 		})
 	})

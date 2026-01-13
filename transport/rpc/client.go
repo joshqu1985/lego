@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
 	gresolver "google.golang.org/grpc/resolver"
 
 	"github.com/joshqu1985/lego/transport/naming"
@@ -50,36 +51,38 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(`{"loadBalancingPolicy":"round_robin"}`),
 	}
-	options = append(options, grpc.WithChainUnaryInterceptor(client.unaryInterceptors...))
-	options = append(options, grpc.WithChainStreamInterceptor(client.streamInterceptors...))
+	options = append(options, grpc.WithChainUnaryInterceptor(client.unaryInterceptors...),
+		grpc.WithChainStreamInterceptor(client.streamInterceptors...))
 
-	if err := client.dial(options); err != nil {
-		return nil, err
+	if xerr := client.dial(options); xerr != nil {
+		return nil, xerr
 	}
+
 	return client, nil
 }
 
-func (this *Client) Conn() *grpc.ClientConn {
-	return this.conn
+func (c *Client) Conn() *grpc.ClientConn {
+	return c.conn
 }
 
-func (this *Client) Target() string {
-	return this.target
+func (c *Client) Target() string {
+	return c.target
 }
 
-func (this *Client) dial(options []grpc.DialOption) error {
-	conn, err := grpc.NewClient(this.target, options...)
+func (c *Client) dial(options []grpc.DialOption) error {
+	conn, err := grpc.NewClient(c.target, options...)
 	if err != nil {
 		return err
 	}
-	this.conn = conn
+	c.conn = conn
+
 	return nil
 }
 
-func (this *Client) addUnaryInterceptors(inter grpc.UnaryClientInterceptor) {
-	this.unaryInterceptors = append(this.unaryInterceptors, inter)
+func (c *Client) addUnaryInterceptors(inter grpc.UnaryClientInterceptor) {
+	c.unaryInterceptors = append(c.unaryInterceptors, inter)
 }
 
-func (this *Client) addStreamInterceptors(inter grpc.StreamClientInterceptor) {
-	this.streamInterceptors = append(this.streamInterceptors, inter)
+func (c *Client) addStreamInterceptors(inter grpc.StreamClientInterceptor) {
+	c.streamInterceptors = append(c.streamInterceptors, inter)
 }

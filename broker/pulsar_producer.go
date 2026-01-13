@@ -2,15 +2,21 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/apache/pulsar-client-go/pulsar"
 )
 
-func NewPulsarProducer(conf Config) (Producer, error) {
+type pulsarProducer struct {
+	client    pulsar.Client
+	producers map[string]pulsar.Producer
+	topics    map[string]string
+}
+
+func NewPulsarProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, fmt.Errorf("endpoints is empty")
+		return nil, errors.New(ErrEndpointsEmpty)
 	}
 
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -20,7 +26,7 @@ func NewPulsarProducer(conf Config) (Producer, error) {
 		return nil, err
 	}
 
-	producers := map[string]pulsar.Producer{}
+	producers := make(map[string]pulsar.Producer)
 	for topicKey, topicVal := range conf.Topics {
 		options := pulsar.ProducerOptions{
 			Topic: topicVal,
@@ -38,20 +44,18 @@ func NewPulsarProducer(conf Config) (Producer, error) {
 	}, nil
 }
 
-type pulsarProducer struct {
-	client    pulsar.Client
-	producers map[string]pulsar.Producer
-	topics    map[string]string
+func (pp *pulsarProducer) Send(ctx context.Context, topicKey string, msg *Message) error {
+	return pp.SendDelay(ctx, topicKey, msg, 0)
 }
 
-func (this *pulsarProducer) Send(ctx context.Context, topicKey string, msg *Message, args ...int64) error {
+func (pp *pulsarProducer) SendDelay(ctx context.Context, topicKey string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return fmt.Errorf("message is nil")
+		return errors.New(ErrMessageIsNil)
 	}
 
-	producer, ok := this.producers[topicKey]
+	producer, ok := pp.producers[topicKey]
 	if !ok {
-		return fmt.Errorf("topic not found")
+		return errors.New(ErrTopicNotFound)
 	}
 
 	data := pulsar.ProducerMessage{
@@ -60,21 +64,23 @@ func (this *pulsarProducer) Send(ctx context.Context, topicKey string, msg *Mess
 		Properties: msg.Properties,
 	}
 
-	if len(args) != 0 && args[0] > time.Now().Unix() {
-		data.DeliverAt = time.Unix(args[0], 0)
+	if stamp > time.Now().Unix() {
+		data.DeliverAt = time.Unix(stamp, 0)
 	}
 
 	recive, err := producer.Send(ctx, &data)
 	if recive != nil {
 		msg.MessageId = recive.String()
 	}
+
 	return err
 }
 
-func (this *pulsarProducer) Close() error {
-	for _, producer := range this.producers {
+func (pp *pulsarProducer) Close() error {
+	for _, producer := range pp.producers {
 		producer.Close()
 	}
-	this.client.Close()
+	pp.client.Close()
+
 	return nil
 }

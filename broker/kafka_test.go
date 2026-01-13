@@ -8,7 +8,7 @@ import (
 )
 
 func TestKafkaBroker(t *testing.T) {
-	consumer, _ := NewKafkaConsumer(Config{
+	consumer, _ := NewKafkaConsumer(&Config{
 		Endpoints: []string{"127.0.0.1:9092"},
 		GroupId:   "g1",
 		Topics:    map[string]string{"test": "test"},
@@ -19,7 +19,7 @@ func TestKafkaBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, _ := NewKafkaProducer(Config{
+	producer, _ := NewKafkaProducer(&Config{
 		Endpoints: []string{"127.0.0.1:9092"},
 		Topics:    map[string]string{"test": "test"},
 	})
@@ -42,7 +42,7 @@ func TestKafkaBroker(t *testing.T) {
 	curr := time.Now().Unix()
 	err = producer.Send(context.Background(), "test", &Message{
 		Payload: []byte("hello kitty 3"),
-	}, curr+5)
+	})
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -53,7 +53,7 @@ func TestKafkaBroker(t *testing.T) {
 }
 
 func BenchmarkKafkaProducer(b *testing.B) {
-	producer, _ := NewKafkaProducer(Config{
+	producer, _ := NewKafkaProducer(&Config{
 		Endpoints: []string{"127.0.0.1:9092"},
 		Topics:    map[string]string{"test": "test"},
 	})

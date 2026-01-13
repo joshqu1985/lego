@@ -8,8 +8,17 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/golang/glog"
+
 	"github.com/joshqu1985/lego/utils/routine"
 )
+
+type localConfig struct {
+	opts    options
+	watcher *fsnotify.Watcher
+	file    string
+	data    ChangeSet
+	sync.RWMutex
+}
 
 func NewLocal(file string, opts options) (Configor, error) {
 	c := &localConfig{
@@ -24,25 +33,18 @@ func NewLocal(file string, opts options) (Configor, error) {
 	if err := c.watch(); err != nil {
 		return nil, err
 	}
+
 	return c, nil
 }
 
-type localConfig struct {
-	file    string
-	opts    options
-	watcher *fsnotify.Watcher
+func (lc *localConfig) Load(v any) error {
+	lc.RLock()
+	defer lc.RUnlock()
 
-	sync.RWMutex
-	data ChangeSet
+	return lc.opts.Encoding.Unmarshal(lc.data.Value, v)
 }
 
-func (this *localConfig) Load(v any) error {
-	this.RLock()
-	defer this.RUnlock()
-	return this.opts.Encoding.Unmarshal(this.data.Value, v)
-}
-
-func (this *localConfig) read(file string) (ChangeSet, error) {
+func (lc *localConfig) read(file string) (ChangeSet, error) {
 	fp, err := os.Open(file)
 	if err != nil {
 		return ChangeSet{}, err
@@ -56,47 +58,50 @@ func (this *localConfig) read(file string) (ChangeSet, error) {
 
 	data := ChangeSet{Timestamp: time.Now(), Value: value}
 
-	this.Lock()
-	this.data = data
-	this.Unlock()
+	lc.Lock()
+	lc.data = data
+	lc.Unlock()
+
 	return data, nil
 }
 
-func (this *localConfig) watch() error {
-	if this.opts.WatchChange == nil {
+func (lc *localConfig) watch() error {
+	if lc.opts.WatchChange == nil {
 		return nil
 	}
 
 	var err error
-	this.watcher, err = fsnotify.NewWatcher()
+	lc.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
 		return err
 	}
-	if err := this.watcher.Add(this.file); err != nil {
-		return err
+	if xerr := lc.watcher.Add(lc.file); xerr != nil {
+		return xerr
 	}
 
-	routine.Go(func() { this.run() })
+	routine.Go(func() { lc.run() })
+
 	return nil
 }
 
-func (this *localConfig) run() {
+func (lc *localConfig) run() {
 	for {
 		select {
-		case event, ok := <-this.watcher.Events:
+		case event, ok := <-lc.watcher.Events:
 			if !ok {
 				return
 			}
 
 			if event.Has(fsnotify.Write) {
-				data, err := this.read(event.Name)
+				data, err := lc.read(event.Name)
 				if err != nil {
 					glog.Errorf("local config read err:%v", err)
+
 					continue
 				}
-				this.opts.WatchChange(data)
+				lc.opts.WatchChange(data)
 			}
-		case err, ok := <-this.watcher.Errors:
+		case err, ok := <-lc.watcher.Errors:
 			if !ok {
 				return
 			}

@@ -1,24 +1,23 @@
 package main
 
 import (
-	"fmt"
 	"sync/atomic"
 
+	"github.com/joshqu1985/lego/logs"
 	"github.com/joshqu1985/lego/transport/rest"
 )
 
-type Handler struct {
-}
+type Handler struct{}
+
+var count int64
 
 func NewApiHandler() *Handler {
 	return &Handler{}
 }
 
-var count int64
-
 func (h *Handler) Hello(ctx *rest.Context) *rest.JSONResponse {
 	var args struct {
-		Data string `form:"data" binding:"required"`
+		Data string `binding:"required" form:"data"`
 	}
 
 	if err := ctx.ShouldBindQuery(&args); err != nil {
@@ -27,10 +26,11 @@ func (h *Handler) Hello(ctx *rest.Context) *rest.JSONResponse {
 
 	atomic.AddInt64(&count, 1)
 	if atomic.LoadInt64(&count)%10000 == 0 {
-		fmt.Println("-------->", atomic.LoadInt64(&count)/10000, "万")
+		logs.Info("-------->", atomic.LoadInt64(&count)/10000, "万")
 	}
 	if atomic.LoadInt64(&count) > 500000 && atomic.LoadInt64(&count) < 2000000 {
 		return rest.ErrorResponse(503000, "server busy")
 	}
+
 	return rest.SuccessResponse("hello" + args.Data)
 }

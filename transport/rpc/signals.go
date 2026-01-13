@@ -6,12 +6,12 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/golang/glog"
+	"github.com/joshqu1985/lego/logs"
 )
 
 type Monitor struct {
 	callbacks []func()
-	sync.Mutex
+	lock      sync.Mutex
 }
 
 func NewMonitor() *Monitor {
@@ -25,13 +25,13 @@ func NewMonitor() *Monitor {
 	return m
 }
 
-func (this *Monitor) AddShutdownCallback(fn func()) {
-	this.Lock()
-	this.callbacks = append(this.callbacks, fn)
-	this.Unlock()
+func (m *Monitor) AddShutdownCallback(fn func()) {
+	m.lock.Lock()
+	m.callbacks = append(m.callbacks, fn)
+	m.lock.Unlock()
 }
 
-func (this *Monitor) listenSignals() {
+func (m *Monitor) listenSignals() {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 
@@ -39,21 +39,21 @@ func (this *Monitor) listenSignals() {
 		sig := <-signals
 		switch sig {
 		case syscall.SIGTERM:
-			this.processCallbacks(signals, syscall.SIGTERM)
+			m.processCallbacks(signals, syscall.SIGTERM)
 		case syscall.SIGINT:
-			this.processCallbacks(signals, syscall.SIGINT)
+			m.processCallbacks(signals, syscall.SIGINT)
 		default:
-			glog.Error("unregistered signal:", sig)
+			logs.Error("unregistered signal:", sig)
 		}
 	}
 }
 
-func (this *Monitor) processCallbacks(signals chan os.Signal, _ syscall.Signal) {
+func (m *Monitor) processCallbacks(signals chan os.Signal, _ syscall.Signal) {
 	signal.Stop(signals)
 
-	this.Lock()
-	callbacks := this.callbacks
-	this.Unlock()
+	m.lock.Lock()
+	callbacks := m.callbacks
+	m.lock.Unlock()
 
 	for _, callback := range callbacks {
 		callback()

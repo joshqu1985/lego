@@ -1,7 +1,6 @@
 package client
 
 import (
-	_ "embed"
 	"fmt"
 	"go/format"
 	"path"
@@ -10,25 +9,29 @@ import (
 
 	"github.com/codeskyblue/go-sh"
 
+	_ "embed"
+
 	"github.com/joshqu1985/lego/cmd/internal/pkg"
 )
 
-type ServiceTemplateVars struct {
-	PackageName string
-	Name        string // 模块名称
-	Document    string // 模块文档
-	Methods     []*MethodTemplateVars
-}
+type (
+	ServiceTemplateVars struct {
+		PackageName string
+		Name        string // 模块名称
+		Document    string // 模块文档
+		Methods     []*MethodTemplateVars
+	}
 
-type MethodTemplateVars struct {
-	Name     string // 方法名
-	Document string // 方法文档
-	Cmd      string // 方法类型 rest Post / Get / Delete
-	Uri      string // 方法请求路径 rest
-	IsForm   bool   // 入参是否是form表单 rest
-	ReqName  string // 入参自定义类型名
-	ResName  string // 出参自定义类型名
-}
+	MethodTemplateVars struct {
+		Name     string
+		Document string
+		Cmd      string
+		Uri      string
+		ReqName  string
+		ResName  string
+		IsForm   bool
+	}
+)
 
 var (
 	//go:embed templates/rest_method_head.tpl
@@ -73,8 +76,8 @@ func genRestModel(packageName, src string, tree *pkg.Tree) (pkg.File, error) {
 	}
 
 	return pkg.File{
-		Name: fmt.Sprintf("/%s/", packageName) +
-			strings.Replace(path.Base(src), ".proto", "_model.gen.go", -1),
+		Name: fmt.Sprintf("/%s/", packageName) + //nolint:goconst
+			strings.ReplaceAll(path.Base(src), pkg.FileSuffixProto, "_model"+pkg.FileSuffixGenGo),
 		Data:         code,
 		ForceReplace: true,
 	}, nil
@@ -86,7 +89,7 @@ func genRestRequest(packageName, src string, tree *pkg.Tree) (pkg.File, error) {
 	}
 	content := pkg.Print("rest-method-head", restMethodHeadTpl, vars)
 
-	stus := map[string]*pkg.StructNode{}
+	stus := make(map[string]*pkg.StructNode, 0)
 	for _, stu := range tree.Structs {
 		stus[stu.Name] = stu
 	}
@@ -101,7 +104,7 @@ func genRestRequest(packageName, src string, tree *pkg.Tree) (pkg.File, error) {
 
 	return pkg.File{
 		Name: fmt.Sprintf("/%s/", packageName) +
-			strings.Replace(path.Base(src), ".proto", ".gen.go", -1),
+			strings.ReplaceAll(path.Base(src), pkg.FileSuffixProto, pkg.FileSuffixGenGo),
 		Data:         code,
 		ForceReplace: true,
 	}, nil
@@ -119,6 +122,7 @@ func genRpcProtoFile(packageName, src, dst string) error {
 	if err := sh.Command("protoc", args...).Run(); err != nil {
 		return err
 	}
+
 	return nil
 }
 
@@ -139,7 +143,7 @@ func genRpcRequest(packageName, src string, tree *pkg.Tree) (pkg.File, error) {
 
 	return pkg.File{
 		Name: fmt.Sprintf("/%s/", packageName) +
-			strings.Replace(path.Base(src), ".proto", ".gen.go", -1),
+			strings.ReplaceAll(path.Base(src), pkg.FileSuffixProto, pkg.FileSuffixGenGo),
 		Data:         code,
 		ForceReplace: true,
 	}, nil
@@ -151,14 +155,15 @@ func genRestEnum(e *pkg.EnumNode) string {
 
 func genRestStruct(s *pkg.StructNode) string {
 	var structVars struct {
-		IsForm bool
 		*pkg.StructNode
+		IsForm bool
 	}
 	structVars.StructNode = s
 
-	if tags, _ := s.Options["message_tag"]; strings.Contains(tags, "form") {
+	if tags := s.Options["message_tag"]; strings.Contains(tags, pkg.StringForm) {
 		structVars.IsForm = true
 	}
+
 	return pkg.Print("rest-model-struct", restModelStructTpl, structVars)
 }
 
@@ -166,10 +171,10 @@ func genRestService(stus map[string]*pkg.StructNode, service *pkg.ServiceNode) s
 	vars := &ServiceTemplateVars{
 		Document: service.Document,
 		Name:     service.Name,
-		Methods:  []*MethodTemplateVars{},
+		Methods:  make([]*MethodTemplateVars, 0),
 	}
 
-	var ok bool
+	var mok bool
 	for _, method := range service.Methods {
 		methodVar := &MethodTemplateVars{
 			Document: method.Document,
@@ -177,24 +182,25 @@ func genRestService(stus map[string]*pkg.StructNode, service *pkg.ServiceNode) s
 			ReqName:  method.ReqName,
 			ResName:  method.ResName,
 		}
-		methodVar.Cmd, ok = method.Options["method_cmd"]
-		if !ok {
+		methodVar.Cmd, mok = method.Options["method_cmd"]
+		if !mok {
 			continue
 		}
-		methodVar.Uri, ok = method.Options["method_uri"]
-		if !ok {
+		methodVar.Uri, mok = method.Options["method_uri"]
+		if !mok {
 			continue
 		}
 
-		request, ok := stus[method.ReqName]
-		if !ok {
+		request, sok := stus[method.ReqName]
+		if !sok {
 			continue
 		}
-		if tags, _ := request.Options["message_tag"]; strings.Contains(tags, "form") {
+		if tags := request.Options["message_tag"]; strings.Contains(tags, pkg.StringForm) {
 			methodVar.IsForm = true
 		}
 		vars.Methods = append(vars.Methods, methodVar)
 	}
+
 	return pkg.Print("rest-method-body", restMethodBodyTpl, vars)
 }
 
@@ -203,7 +209,7 @@ func genRpcService(packageName string, service *pkg.ServiceNode) string {
 		PackageName: packageName,
 		Document:    service.Document,
 		Name:        service.Name,
-		Methods:     []*MethodTemplateVars{},
+		Methods:     make([]*MethodTemplateVars, 0),
 	}
 
 	var ok bool
@@ -224,5 +230,6 @@ func genRpcService(packageName string, service *pkg.ServiceNode) string {
 		}
 		vars.Methods = append(vars.Methods, methodVar)
 	}
+
 	return pkg.Print("rpc-method-body", rpcMethodBodyTpl, vars)
 }

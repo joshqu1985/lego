@@ -5,74 +5,72 @@ import (
 	"fmt"
 )
 
-// Producer 生产者
-type Producer interface {
-	Send(ctx context.Context, topic string, msg *Message, delay ...int64) error // delay 时间戳
-	Close() error
-}
+const (
+	SourceKafka   = "kafka"
+	SourceRocket  = "rocketmq"
+	SourcePulsar  = "pulsar"
+	SourceRedis   = "redis"
+	SourceMemory  = "memory"
+	SourceUnknown = "unsupported"
 
-// Consumer 消费者
-type Consumer interface {
-	Register(topic string, f ConsumeCallback) error
-	Start() error
-	Close() error
-}
+	ErrEndpointsEmpty = "endpoints is empty"
+	ErrSubscriberNil  = "subscriber is nil"
+	ErrMessageIsNil   = "message is nil"
+	ErrQueueIsFull    = "queue is full"
+	ErrTopicNotFound  = "topic not found"
+)
 
-// NewProducer 创建Producer
-func NewProducer(conf Config) Producer {
-	var (
-		producer Producer
-		err      error
-	)
+type (
+	// Producer 生产者.
+	Producer interface {
+		Send(ctx context.Context, topic string, msg *Message) error
+		SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error // stamp 时间戳
+		Close() error
+	}
 
+	// Consumer 消费者.
+	Consumer interface {
+		Register(topic string, f ConsumeCallback) error
+		Start() error
+		Close() error
+	}
+
+	// ConsumeCallback 消费回调.
+	ConsumeCallback func(context.Context, *Message) error
+)
+
+// NewProducer 创建Producer.
+func NewProducer(conf *Config) (Producer, error) {
 	switch conf.Source {
-	case "kafka":
-		producer, err = NewKafkaProducer(conf)
-	case "rocketmq":
-		producer, err = NewRocketProducer(conf)
-	case "pulsar":
-		producer, err = NewPulsarProducer(conf)
-	case "redis":
-		producer, err = NewRedisProducer(conf)
-	case "memory":
-		producer, err = NewMemoryProducer(conf)
+	case SourceKafka:
+		return NewKafkaProducer(conf)
+	case SourceRocket:
+		return NewRocketProducer(conf)
+	case SourcePulsar:
+		return NewPulsarProducer(conf)
+	case SourceRedis:
+		return NewRedisProducer(conf)
+	case SourceMemory:
+		return NewMemoryProducer(conf)
 	default:
-		producer, err = nil, fmt.Errorf("unknown source: %s", conf.Source)
+		return nil, fmt.Errorf("%s:%s", SourceUnknown, conf.Source)
 	}
-
-	if err != nil {
-		panic(err)
-	}
-	return producer
 }
 
-// ConsumeCallback 消费回调
-type ConsumeCallback func(context.Context, *Message) error
-
-// NewConsumer 创建Consumer
-func NewConsumer(conf Config) Consumer {
-	var (
-		consumer Consumer
-		err      error
-	)
-
+// NewConsumer 创建Consumer.
+func NewConsumer(conf *Config) (Consumer, error) {
 	switch conf.Source {
-	case "kafka":
-		consumer, err = NewKafkaConsumer(conf)
-	case "rocketmq":
-		consumer, err = NewRocketConsumer(conf)
-	case "pulsar":
-		consumer, err = NewPulsarConsumer(conf)
-	case "redis":
-		consumer, err = NewRedisConsumer(conf)
-	case "memory":
-		consumer, err = NewMemoryConsumer(conf)
+	case SourceKafka:
+		return NewKafkaConsumer(conf)
+	case SourceRocket:
+		return NewRocketConsumer(conf)
+	case SourcePulsar:
+		return NewPulsarConsumer(conf)
+	case SourceRedis:
+		return NewRedisConsumer(conf)
+	case SourceMemory:
+		return NewMemoryConsumer(conf)
 	default:
-		consumer, err = nil, fmt.Errorf("unknown source: %s", conf.Source)
+		return nil, fmt.Errorf("%s:%s", SourceUnknown, conf.Source)
 	}
-
-	if err != nil {
-		panic(err)
-	}
-	return consumer
 }

@@ -9,11 +9,17 @@ func Local() string {
 	}
 
 	for _, addr := range addrs {
-		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-			if ipnet.IP.To4() != nil {
-				return ipnet.IP.String()
-			}
+		ipnet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ipnet.IP.IsLoopback() {
+			continue
+		}
+		if ipnet.IP.To4() != nil {
+			return ipnet.IP.String()
 		}
 	}
+
 	return ""
 }

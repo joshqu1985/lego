@@ -2,24 +2,38 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"time"
 
-	rocket "github.com/apache/rocketmq-clients/golang/v5"
 	"github.com/apache/rocketmq-clients/golang/v5/credentials"
+
+	rocket "github.com/apache/rocketmq-clients/golang/v5"
+
 	"github.com/joshqu1985/lego/utils/routine"
 )
 
-// NewRocketConsumer 创建RocketConsumer
-func NewRocketConsumer(conf Config) (Consumer, error) {
+const (
+	MQConsoleAppenderEnabled = "mq.consoleAppender.enabled"
+)
+
+// rocketConsumer rocketmq消费者结构.
+type rocketConsumer struct {
+	client    rocket.SimpleConsumer
+	topics    map[string]string
+	callbacks map[string]ConsumeCallback
+	stopWork  chan struct{}
+}
+
+// NewRocketConsumer 创建RocketConsumer.
+func NewRocketConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, fmt.Errorf("endpoints is empty")
+		return nil, errors.New(ErrEndpointsEmpty)
 	}
-	os.Setenv("mq.consoleAppender.enabled", "true")
+	os.Setenv(MQConsoleAppenderEnabled, "true")
 	rocket.ResetLogger()
 
-	expr := map[string]*rocket.FilterExpression{}
+	expr := make(map[string]*rocket.FilterExpression)
 	for _, topicVal := range conf.Topics {
 		expr[topicVal] = rocket.SUB_ALL
 	}
@@ -44,45 +58,40 @@ func NewRocketConsumer(conf Config) (Consumer, error) {
 		callbacks: make(map[string]ConsumeCallback),
 		stopWork:  make(chan struct{}, 1),
 	}
+
 	return consumer, nil
 }
 
-// rocketConsumer rocketmq消费者结构
-type rocketConsumer struct {
-	client    rocket.SimpleConsumer
-	topics    map[string]string
-	callbacks map[string]ConsumeCallback
-	stopWork  chan struct{}
-}
-
-func (this *rocketConsumer) Register(topicKey string, f ConsumeCallback) error {
-	topicVal, ok := this.topics[topicKey]
+func (rc *rocketConsumer) Register(topicKey string, f ConsumeCallback) error {
+	topicVal, ok := rc.topics[topicKey]
 	if !ok {
-		return fmt.Errorf("topic not found")
+		return errors.New(ErrTopicNotFound)
 	}
 
-	this.callbacks[topicVal] = f
+	rc.callbacks[topicVal] = f
+
 	return nil
 }
 
-func (this *rocketConsumer) Start() error {
-	if err := this.client.Start(); err != nil {
+func (rc *rocketConsumer) Start() error {
+	if err := rc.client.Start(); err != nil {
 		return err
 	}
 
 	for {
 		select {
-		case <-this.stopWork:
+		case <-rc.stopWork:
 			return nil
 		default:
-			msgs, err := this.client.Receive(context.Background(), 5, time.Second*30)
+			msgs, err := rc.client.Receive(context.Background(), 5, time.Second*30)
 			if err != nil {
 				continue
 			}
 			for _, msg := range msgs {
-				fn, ok := this.callbacks[msg.GetTopic()]
+				fn, ok := rc.callbacks[msg.GetTopic()]
 				if !ok || fn == nil {
-					this.client.Ack(context.Background(), msg)
+					_ = rc.client.Ack(context.Background(), msg)
+
 					continue
 				}
 
@@ -92,23 +101,24 @@ func (this *rocketConsumer) Start() error {
 					Properties: msg.GetProperties(),
 				}
 				if msg.GetTag() != nil {
-					data.Properties["tag"] = *(msg.GetTag())
+					data.Properties["tag"] = *msg.GetTag()
 				}
 
-				if err := routine.Safe(func() {
+				if yerr := routine.Safe(func() {
 					if xerr := fn(context.Background(), data); xerr == nil {
-						this.client.Ack(context.Background(), msg)
+						_ = rc.client.Ack(context.Background(), msg)
 					}
-				}); err != nil {
+				}); yerr != nil {
 					// panic do not retry
-					this.client.Ack(context.Background(), msg)
+					_ = rc.client.Ack(context.Background(), msg)
 				}
 			}
 		}
 	}
 }
 
-func (this *rocketConsumer) Close() error {
-	this.stopWork <- struct{}{}
-	return this.client.GracefulStop()
+func (rc *rocketConsumer) Close() error {
+	rc.stopWork <- struct{}{}
+
+	return rc.client.GracefulStop()
 }

@@ -8,7 +8,7 @@ import (
 
 func InitOss() (*OssClient, error) {
 	opts := options{}
-	return NewOssClient(Config{
+	return NewOssClient(&Config{
 		Source:       "oss",
 		Endpoint:     "http://127.0.0.1:9000",
 		Region:       "cn-beijing",

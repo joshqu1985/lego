@@ -29,27 +29,29 @@ func NewBloomFilter(size uint64) *BloomFilter {
 	}
 }
 
-func (this *BloomFilter) Add(data []byte) {
-	positions := this.hash(data)
+func (bf *BloomFilter) Add(data []byte) {
+	positions := bf.hash(data)
 	for _, position := range positions {
-		this.bm.Set(position)
+		_ = bf.bm.Set(position)
 	}
 }
 
-func (this *BloomFilter) Exist(data []byte) bool {
-	positions := this.hash(data)
+func (bf *BloomFilter) Exist(data []byte) bool {
+	positions := bf.hash(data)
 	for _, position := range positions {
-		if !this.bm.IsSet(position) {
+		if !bf.bm.IsSet(position) {
 			return false
 		}
 	}
+
 	return true
 }
 
-func (this *BloomFilter) hash(data []byte) []uint64 {
+func (bf *BloomFilter) hash(data []byte) []uint64 {
 	positions := make([]uint64, BLOOM_HASH_K)
-	for i := 0; i < BLOOM_HASH_K; i++ {
-		positions[i] = murmur3.Sum64(append(data, byte(i))) % this.size
+	for i := 0; i < int(BLOOM_HASH_K); i++ {
+		positions[i] = murmur3.Sum64(append(data, byte(i))) % bf.size
 	}
+
 	return positions
 }

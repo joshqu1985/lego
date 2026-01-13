@@ -1,6 +1,7 @@
 package pkg
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -11,9 +12,39 @@ import (
 	"github.com/joshqu1985/lego/cmd/internal/pkg/g4"
 )
 
+const (
+	ProtocolComment = 1
+)
+
+type ProtoVisitor struct {
+	g4.Protobuf3Visitor
+	Tree Tree
+}
+
+var BasicTypes = []string{
+	"bool",
+	"string",
+	"int",
+	"int8",
+	"int16",
+	"int32",
+	"int64",
+	"uint",
+	"uint8",
+	"uint16",
+	"uint32",
+	"uint64",
+	"float32",
+	"float64",
+	"byte",
+	"rune",
+	"complex64",
+	"complex128",
+}
+
 func Parse(filename string) (*Tree, error) {
 	if filename == "" {
-		return nil, nil
+		return nil, errors.New("filename is empty")
 	}
 
 	file, err := antlr.NewFileStream(filename)
@@ -26,10 +57,11 @@ func Parse(filename string) (*Tree, error) {
 
 	data := g4.NewProtobuf3Parser(stream).Proto().Accept(newProtoVisitor())
 
-	tree := data.(*Tree)
+	tree, _ := data.(*Tree)
 	for _, node := range tree.Structs {
 		preprocessStruct(node)
 	}
+
 	return tree, nil
 }
 
@@ -42,56 +74,58 @@ func preprocessStruct(item *StructNode) {
 
 	for _, field := range item.Fields {
 		field.Name = strcase.ToCamel(field.Name)
-		if isBasicType(field.Type) {
-			if field.Repeated {
-				field.Type = fmt.Sprintf("[]%s", field.Type)
-			} else {
-				field.Type = fmt.Sprintf("%s", field.Type)
-			}
-		} else {
-			if field.Repeated {
-				field.Type = fmt.Sprintf("[]*%s", field.Type)
-			} else {
-				field.Type = fmt.Sprintf("*%s", field.Type)
-			}
-		}
-		vals := []string{}
+		field.Type = preprocessType(field.Type, field.Repeated)
+
+		vals := make([]string, 0)
 		for _, tag := range tags {
-			vals = append(vals, fmt.Sprintf("%s:\"%s\"", tag, strcase.ToSnake(field.Name)))
+			vals = append(vals, fmt.Sprintf("%s:%q", tag, strcase.ToSnake(field.Name))) // nolint:goconst
 		}
 		field.Tag = "`" + strings.Join(vals, " ") + "`"
 	}
 
 	for _, field := range item.MapFields {
 		field.Name = strcase.ToCamel(field.Name)
-		vals := []string{}
+		vals := make([]string, 0)
 		for _, tag := range tags {
-			vals = append(vals, fmt.Sprintf("%s:\"%s\"", tag, strcase.ToSnake(field.Name)))
+			vals = append(vals, fmt.Sprintf("%s:%q", tag, strcase.ToSnake(field.Name)))
 		}
 		field.Tag = "`" + strings.Join(vals, " ") + "`"
 	}
 }
 
-type ProtoVisitor struct {
-	g4.Protobuf3Visitor
-	Tree Tree
+func preprocessType(t string, repeated bool) string {
+	if isBasicType(t) {
+		if repeated {
+			return "[]" + t
+		}
+
+		return t
+	}
+
+	if repeated {
+		return "[]*" + t
+	} else {
+		return "*" + t
+	}
 }
 
 func newProtoVisitor() *ProtoVisitor {
 	return &ProtoVisitor{
-		Tree: Tree{Options: map[string]string{}},
+		Tree: Tree{Options: make(map[string]string)},
 	}
 }
 
-func (v *ProtoVisitor) VisitProto(ctx *g4.ProtoContext) interface{} {
+func (v *ProtoVisitor) VisitProto(ctx *g4.ProtoContext) any {
 	for _, each := range ctx.AllImportStatement() {
 		if statement := each.Accept(v); statement != nil {
-			v.Tree.Imports = append(v.Tree.Imports, statement.(string))
+			iStatement, _ := statement.(string)
+			v.Tree.Imports = append(v.Tree.Imports, iStatement)
 		}
 	}
 
 	for _, each := range ctx.AllOptionStatement() {
-		if option := each.Accept(v).(*OptionConst); option != nil {
+		option, _ := each.Accept(v).(*OptionConst)
+		if option != nil {
 			v.Tree.Options[option.Name] = option.Constant
 		}
 	}
@@ -103,25 +137,27 @@ func (v *ProtoVisitor) VisitProto(ctx *g4.ProtoContext) interface{} {
 	if packageStatement := ctx.PackageStatement(0); packageStatement != nil {
 		v.Tree.Package = packageStatement.FullIdent().GetText()
 	}
+
 	return &v.Tree
 }
 
-func (v *ProtoVisitor) VisitImportStatement(ctx *g4.ImportStatementContext) interface{} {
+func (v *ProtoVisitor) VisitImportStatement(ctx *g4.ImportStatementContext) any {
 	if ctx.StrLit() == nil {
 		return nil
 	}
+
 	return ctx.StrLit().Accept(v)
 }
 
-func (v *ProtoVisitor) VisitOptionStatement(ctx *g4.OptionStatementContext) interface{} {
+func (v *ProtoVisitor) VisitOptionStatement(ctx *g4.OptionStatementContext) any {
 	if ctx.OptionName() == nil || ctx.Constant() == nil {
 		return nil
 	}
 
-	name := ctx.OptionName().Accept(v).(string)
+	name, _ := ctx.OptionName().Accept(v).(string)
 	name = strings.TrimFunc(name, func(r rune) bool { return r == '(' || r == ')' })
 
-	constant := ctx.Constant().Accept(v).(string)
+	constant, _ := ctx.Constant().Accept(v).(string)
 	constant = strings.TrimFunc(constant, func(r rune) bool { return r == '"' })
 
 	return &OptionConst{
@@ -130,42 +166,46 @@ func (v *ProtoVisitor) VisitOptionStatement(ctx *g4.OptionStatementContext) inte
 	}
 }
 
-func (v *ProtoVisitor) VisitTopLevelDef(ctx *g4.TopLevelDefContext) interface{} {
+func (v *ProtoVisitor) VisitTopLevelDef(ctx *g4.TopLevelDefContext) any {
 	if ctx.EnumDef() != nil {
 		if enum := ctx.EnumDef().Accept(v); enum != nil {
-			v.Tree.Enums = append(v.Tree.Enums, enum.(*EnumNode))
+			ienum, _ := enum.(*EnumNode)
+			v.Tree.Enums = append(v.Tree.Enums, ienum)
 		}
 	}
 
 	if ctx.MessageDef() != nil {
 		if message := ctx.MessageDef().Accept(v); message != nil {
-			v.Tree.Structs = append(v.Tree.Structs, message.(*StructNode))
+			imessage, _ := message.(*StructNode)
+			v.Tree.Structs = append(v.Tree.Structs, imessage)
 		}
 	}
 
 	if ctx.ServiceDef() != nil {
 		if service := ctx.ServiceDef().Accept(v); service != nil {
-			v.Tree.Services = append(v.Tree.Services, service.(*ServiceNode))
+			iservice, _ := service.(*ServiceNode)
+			v.Tree.Services = append(v.Tree.Services, iservice)
 		}
 	}
 
 	return v
 }
 
-func (v *ProtoVisitor) VisitMessageDef(ctx *g4.MessageDefContext) interface{} {
+func (v *ProtoVisitor) VisitMessageDef(ctx *g4.MessageDefContext) any {
 	message := &StructNode{
 		Document: v.getHiddenTokensToLeft(ctx, ProtocolComment),
-		Options:  map[string]string{},
+		Options:  make(map[string]string),
 	}
 
 	if ctx.MessageName() != nil {
 		if name := ctx.MessageName().Accept(v); name != nil {
-			message.Name = name.(string)
+			message.Name, _ = name.(string)
 		}
 	}
 
 	if ctx.MessageBody() != nil {
-		if body := ctx.MessageBody().Accept(v).(*StructNode); body != nil {
+		body, _ := ctx.MessageBody().Accept(v).(*StructNode)
+		if body != nil {
 			for key, val := range body.Options {
 				message.Options[key] = val
 			}
@@ -177,13 +217,13 @@ func (v *ProtoVisitor) VisitMessageDef(ctx *g4.MessageDefContext) interface{} {
 	return message
 }
 
-func (v *ProtoVisitor) VisitMessageName(ctx *g4.MessageNameContext) interface{} {
+func (v *ProtoVisitor) VisitMessageName(ctx *g4.MessageNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitMessageBody(ctx *g4.MessageBodyContext) interface{} {
+func (v *ProtoVisitor) VisitMessageBody(ctx *g4.MessageBodyContext) any {
 	elements := &StructNode{
-		Options: map[string]string{},
+		Options: make(map[string]string),
 	}
 
 	for _, each := range ctx.AllMessageElement() {
@@ -194,11 +234,13 @@ func (v *ProtoVisitor) VisitMessageBody(ctx *g4.MessageBodyContext) interface{} 
 
 		if field, ok := element.(*StructField); ok {
 			elements.Fields = append(elements.Fields, field)
+
 			continue
 		}
 
 		if field, ok := element.(*StructMap); ok {
 			elements.MapFields = append(elements.MapFields, field)
+
 			continue
 		}
 
@@ -210,16 +252,18 @@ func (v *ProtoVisitor) VisitMessageBody(ctx *g4.MessageBodyContext) interface{} 
 	return elements
 }
 
-func (v *ProtoVisitor) VisitMessageElement(ctx *g4.MessageElementContext) interface{} {
+func (v *ProtoVisitor) VisitMessageElement(ctx *g4.MessageElementContext) any {
 	if ctx.MessageDef() != nil {
 		if message := ctx.MessageDef().Accept(v); message != nil {
-			v.Tree.Structs = append(v.Tree.Structs, message.(*StructNode))
+			imessage, _ := message.(*StructNode)
+			v.Tree.Structs = append(v.Tree.Structs, imessage)
 		}
 	}
 
 	if ctx.EnumDef() != nil {
 		if enum := ctx.EnumDef().Accept(v); enum != nil {
-			v.Tree.Enums = append(v.Tree.Enums, enum.(*EnumNode))
+			ienum, _ := enum.(*EnumNode)
+			v.Tree.Enums = append(v.Tree.Enums, ienum)
 		}
 	}
 
@@ -244,7 +288,7 @@ func (v *ProtoVisitor) VisitMessageElement(ctx *g4.MessageElementContext) interf
 	return nil
 }
 
-func (v *ProtoVisitor) VisitField(ctx *g4.FieldContext) interface{} {
+func (v *ProtoVisitor) VisitField(ctx *g4.FieldContext) any {
 	field := &StructField{
 		Comment: v.getHiddenTokensToRight(ctx, ProtocolComment),
 	}
@@ -257,74 +301,74 @@ func (v *ProtoVisitor) VisitField(ctx *g4.FieldContext) interface{} {
 
 	if ctx.Type_() != nil {
 		if xtype := ctx.Type_().Accept(v); xtype != nil {
-			field.Type = xtype.(string)
+			field.Type, _ = xtype.(string)
 		}
 	}
 
 	if ctx.FieldName() != nil {
 		if name := ctx.FieldName().Accept(v); name != nil {
-			field.Name = name.(string)
+			field.Name, _ = name.(string)
 		}
 	}
 
 	return field
 }
 
-func (v *ProtoVisitor) VisitMapField(ctx *g4.MapFieldContext) interface{} {
+func (v *ProtoVisitor) VisitMapField(ctx *g4.MapFieldContext) any {
 	field := &StructMap{
 		Comment: v.getHiddenTokensToRight(ctx, ProtocolComment),
 	}
 
 	if ctx.KeyType() != nil {
 		if ktype := ctx.KeyType().Accept(v); ktype != nil {
-			field.KeyType = ktype.(string)
+			field.KeyType, _ = ktype.(string)
 		}
 	}
 
 	if ctx.Type_() != nil {
 		if xtype := ctx.Type_().Accept(v); xtype != nil {
-			field.ValType = xtype.(string)
+			field.ValType, _ = xtype.(string)
 		}
 	}
 
 	if ctx.MapName() != nil {
 		if name := ctx.MapName().Accept(v); name != nil {
-			field.Name = name.(string)
+			field.Name, _ = name.(string)
 		}
 	}
 
 	return field
 }
 
-func (v *ProtoVisitor) VisitEnumDef(ctx *g4.EnumDefContext) interface{} {
+func (v *ProtoVisitor) VisitEnumDef(ctx *g4.EnumDefContext) any {
 	enum := &EnumNode{
 		Document: v.getHiddenTokensToLeft(ctx, ProtocolComment),
 	}
 
 	if ctx.EnumName() != nil {
 		if name := ctx.EnumName().Accept(v); name != nil {
-			enum.Name = name.(string)
+			enum.Name, _ = name.(string)
 		}
 	}
 
 	if ctx.EnumBody() != nil {
 		if body := ctx.EnumBody().Accept(v); body != nil {
-			enum.Fields = body.([]*EnumField)
+			enum.Fields, _ = body.([]*EnumField)
 		}
 	}
 
 	return enum
 }
 
-func (v *ProtoVisitor) VisitEnumName(ctx *g4.EnumNameContext) interface{} {
+func (v *ProtoVisitor) VisitEnumName(ctx *g4.EnumNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitEnumBody(ctx *g4.EnumBodyContext) interface{} {
-	fields := []*EnumField{}
+func (v *ProtoVisitor) VisitEnumBody(ctx *g4.EnumBodyContext) any {
+	fields := make([]*EnumField, 0)
 
 	for _, each := range ctx.AllEnumElement() {
-		if field := each.Accept(v).(*EnumField); field != nil {
+		if field, _ := each.Accept(v).(*EnumField); field != nil {
 			fields = append(fields, field)
 		}
 	}
@@ -332,88 +376,94 @@ func (v *ProtoVisitor) VisitEnumBody(ctx *g4.EnumBodyContext) interface{} {
 	return fields
 }
 
-func (v *ProtoVisitor) VisitEnumElement(ctx *g4.EnumElementContext) interface{} {
+func (v *ProtoVisitor) VisitEnumElement(ctx *g4.EnumElementContext) any {
 	if ctx.EnumField() == nil {
 		return nil
 	}
+
 	return ctx.EnumField().Accept(v)
 }
 
-func (v *ProtoVisitor) VisitEnumField(ctx *g4.EnumFieldContext) interface{} {
+func (v *ProtoVisitor) VisitEnumField(ctx *g4.EnumFieldContext) any {
 	field := &EnumField{
 		Comment: v.getHiddenTokensToRight(ctx, ProtocolComment),
 	}
 
 	if ctx.Ident() != nil {
 		if ident := ctx.Ident().Accept(v); ident != nil {
-			field.Name = ident.(string)
+			field.Name, _ = ident.(string)
 		}
 	}
 
 	if ctx.IntLit() != nil {
 		if value := ctx.IntLit().Accept(v); value != nil {
-			field.Value, _ = strconv.Atoi(value.(string))
+			ivalue, _ := value.(string)
+			field.Value, _ = strconv.Atoi(ivalue)
 		}
 	}
 
 	return field
 }
 
-func (v *ProtoVisitor) VisitServiceDef(ctx *g4.ServiceDefContext) interface{} {
+func (v *ProtoVisitor) VisitServiceDef(ctx *g4.ServiceDefContext) any {
 	service := &ServiceNode{
 		Document: v.getHiddenTokensToLeft(ctx, ProtocolComment),
 	}
 
 	if ctx.ServiceName() != nil {
 		if name := ctx.ServiceName().Accept(v); name != nil {
-			service.Name = name.(string)
+			service.Name, _ = name.(string)
 		}
 	}
 
 	for _, each := range ctx.AllServiceElement() {
 		if method := each.Accept(v); method != nil {
-			service.Methods = append(service.Methods, method.(*ServiceMethod))
+			imethod, _ := method.(*ServiceMethod)
+			service.Methods = append(service.Methods, imethod)
 		}
 	}
 
 	return service
 }
 
-func (v *ProtoVisitor) VisitServiceName(ctx *g4.ServiceNameContext) interface{} {
+func (v *ProtoVisitor) VisitServiceName(ctx *g4.ServiceNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitServiceElement(ctx *g4.ServiceElementContext) interface{} {
+func (v *ProtoVisitor) VisitServiceElement(ctx *g4.ServiceElementContext) any {
 	if ctx.Rpc() == nil {
 		return nil
 	}
+
 	return ctx.Rpc().Accept(v)
 }
 
-func (v *ProtoVisitor) VisitRpc(ctx *g4.RpcContext) interface{} {
+func (v *ProtoVisitor) VisitRpc(ctx *g4.RpcContext) any {
 	method := &ServiceMethod{
 		Document: v.getHiddenTokensToLeft(ctx, ProtocolComment),
-		Options:  map[string]string{},
+		Options:  make(map[string]string),
 	}
 
 	if ctx.RpcName() != nil {
 		if name := ctx.RpcName().Accept(v); name != nil {
-			method.Name = name.(string)
+			method.Name, _ = name.(string)
 		}
 	}
 
 	for idx, each := range ctx.AllMessageType() {
-		if mtype := each.Accept(v); mtype != nil {
-			if idx == 0 {
-				method.ReqName = mtype.(string)
-			} else {
-				method.ResName = mtype.(string)
-			}
+		mtype := each.Accept(v)
+		if mtype == nil {
+			continue
+		}
+		if idx == 0 {
+			method.ReqName, _ = mtype.(string)
+		} else {
+			method.ResName, _ = mtype.(string)
 		}
 	}
 
 	for _, each := range ctx.AllOptionStatement() {
-		if option := each.Accept(v).(*OptionConst); option != nil {
+		if option, _ := each.Accept(v).(*OptionConst); option != nil {
 			method.Options[option.Name] = option.Constant
 		}
 	}
@@ -421,80 +471,83 @@ func (v *ProtoVisitor) VisitRpc(ctx *g4.RpcContext) interface{} {
 	return method
 }
 
-func (v *ProtoVisitor) VisitRpcName(ctx *g4.RpcNameContext) interface{} {
+func (v *ProtoVisitor) VisitRpcName(ctx *g4.RpcNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitMessageType(ctx *g4.MessageTypeContext) interface{} {
+func (v *ProtoVisitor) VisitMessageType(ctx *g4.MessageTypeContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitStrLit(ctx *g4.StrLitContext) interface{} {
+func (v *ProtoVisitor) VisitStrLit(ctx *g4.StrLitContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitIdent(ctx *g4.IdentContext) interface{} {
+func (v *ProtoVisitor) VisitIdent(ctx *g4.IdentContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitIntLit(ctx *g4.IntLitContext) interface{} {
+func (v *ProtoVisitor) VisitIntLit(ctx *g4.IntLitContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitOptionName(ctx *g4.OptionNameContext) interface{} {
+func (v *ProtoVisitor) VisitOptionName(ctx *g4.OptionNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitConstant(ctx *g4.ConstantContext) interface{} {
+func (v *ProtoVisitor) VisitConstant(ctx *g4.ConstantContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitKeyType(ctx *g4.KeyTypeContext) interface{} {
+func (v *ProtoVisitor) VisitKeyType(ctx *g4.KeyTypeContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitType_(ctx *g4.Type_Context) interface{} {
+func (v *ProtoVisitor) VisitType_(ctx *g4.Type_Context) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitFieldName(ctx *g4.FieldNameContext) interface{} {
+func (v *ProtoVisitor) VisitFieldName(ctx *g4.FieldNameContext) any {
 	return ctx.GetText()
 }
 
-func (v *ProtoVisitor) VisitMapName(ctx *g4.MapNameContext) interface{} {
+func (v *ProtoVisitor) VisitMapName(ctx *g4.MapNameContext) any {
 	return ctx.GetText()
 }
 
-const (
-	ProtocolComment = 1
-)
-
-func (v *ProtoVisitor) getHiddenTokensToLeft(ctx ParseTopContext, channel int) (text string) {
-	tokens := ctx.GetParser().GetTokenStream().(*antlr.CommonTokenStream).
-		GetHiddenTokensToLeft(ctx.GetStart().GetTokenIndex(), channel)
+func (v *ProtoVisitor) getHiddenTokensToLeft(ctx ParseTopContext, channel int) string {
+	stream, _ := ctx.GetParser().GetTokenStream().(*antlr.CommonTokenStream)
+	tokens := stream.GetHiddenTokensToLeft(ctx.GetStart().GetTokenIndex(), channel)
+	text := ""
 	for _, each := range tokens {
-		if each != nil && each.GetText() != "" {
-			text = strings.TrimPrefix(each.GetText(), "/*")
-			text = strings.TrimPrefix(text, "//")
-			text = strings.TrimPrefix(text, " ")
-			text = strings.TrimSuffix(text, "*/")
+		if each != nil && each.GetText() == "" {
+			continue
 		}
+		text = strings.TrimPrefix(each.GetText(), "/*") // nolint:goconst
+		text = strings.TrimPrefix(text, "//")           // nolint:goconst
+		text = strings.TrimPrefix(text, " ")            // nolint:goconst
+		text = strings.TrimSuffix(text, "*/")           // nolint:goconst
 	}
+
 	return text
 }
 
-func (v *ProtoVisitor) getHiddenTokensToRight(ctx ParseTopContext, channel int) (text string) {
-	tokens := ctx.GetParser().GetTokenStream().(*antlr.CommonTokenStream).
-		GetHiddenTokensToRight(ctx.GetStop().GetTokenIndex(), channel)
+func (v *ProtoVisitor) getHiddenTokensToRight(ctx ParseTopContext, channel int) string {
+	stream, _ := ctx.GetParser().GetTokenStream().(*antlr.CommonTokenStream)
+	tokens := stream.GetHiddenTokensToRight(ctx.GetStop().GetTokenIndex(), channel)
+	text := ""
 	for _, each := range tokens {
-		if each != nil && each.GetText() != "" {
-			text = strings.TrimPrefix(each.GetText(), "/*")
-			text = strings.TrimPrefix(text, "//")
-			text = strings.TrimPrefix(text, " ")
-			text = strings.TrimSuffix(text, "*/")
-			break
+		if each != nil && each.GetText() == "" {
+			continue
 		}
+		text = strings.TrimPrefix(each.GetText(), "/*")
+		text = strings.TrimPrefix(text, "//")
+		text = strings.TrimPrefix(text, " ")
+		text = strings.TrimSuffix(text, "*/")
+
+		break
 	}
+
 	return text
 }
 
@@ -504,26 +557,6 @@ func isBasicType(btype string) bool {
 			return true
 		}
 	}
-	return false
-}
 
-var BasicTypes = []string{
-	"bool",
-	"string",
-	"int",
-	"int8",
-	"int16",
-	"int32",
-	"int64",
-	"uint",
-	"uint8",
-	"uint16",
-	"uint32",
-	"uint64",
-	"float32",
-	"float64",
-	"byte",
-	"rune",
-	"complex64",
-	"complex128",
+	return false
 }

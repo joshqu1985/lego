@@ -14,6 +14,10 @@ import (
 	"{{$.ServerName}}/internal/service"
 )
 
+var (
+  n naming.Naming
+)
+
 func init() {
 	if err := configor.New("./config.toml",
 		configor.WithEtcd(),
@@ -22,7 +26,7 @@ func init() {
 		panic(err)
 	}
 
-	if _, err := naming.Init(config.C.Naming); err != nil {
+	if n, err = naming.Init(config.C.Naming); err != nil {
 		panic(err)
 	}
 
@@ -35,7 +39,7 @@ func main() {
 	)
 
 	s, err := rest.NewServer(config.C.Name, config.C.Addr,
-		rest.WithNaming(naming.Get()),
+		rest.WithNaming(n),
 		rest.WithMetrics(),
 		rest.WithRouters(httpserver.New(svc).Routers))
 	if err != nil {

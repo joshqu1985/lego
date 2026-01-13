@@ -8,7 +8,7 @@ import (
 )
 
 func TestMemoryBroker(t *testing.T) {
-	consumer, _ := NewMemoryConsumer(Config{
+	consumer, _ := NewMemoryConsumer(&Config{
 		GroupId: "g1",
 		Topics:  map[string]string{"test": "test"},
 	})
@@ -18,7 +18,7 @@ func TestMemoryBroker(t *testing.T) {
 	})
 	go consumer.Start()
 
-	producer, _ := NewMemoryProducer(Config{
+	producer, _ := NewMemoryProducer(&Config{
 		Topics: map[string]string{"test": "test"},
 	})
 	err := producer.Send(context.Background(), "test", &Message{
@@ -40,7 +40,7 @@ func TestMemoryBroker(t *testing.T) {
 	curr := time.Now().Unix()
 	err = producer.Send(context.Background(), "test", &Message{
 		Payload: []byte("hello kitty 3"),
-	}, curr+5)
+	})
 	if err != nil {
 		t.Log(err)
 		t.FailNow()

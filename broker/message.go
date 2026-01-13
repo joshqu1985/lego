@@ -1,30 +1,28 @@
 package broker
 
-var (
-	MaxMessageCount = int64(10000)
-)
-
-// Message 消息结构
+// Message 消息结构.
 type Message struct {
-	Payload    []byte            `json:"payload"`
-	Key        string            `json:"key"`
 	Properties map[string]string `json:"properties"`
-
-	MessageId string `json:"-"` // 不需要传 发送后会自动填入
-	Topic     string `json:"-"` // 不需要传 内部使用
+	Key        string            `json:"key"`
+	MessageId  string            `json:"-"`
+	Topic      string            `json:"-"`
+	Payload    []byte            `json:"payload"`
 }
 
-func (this *Message) SetTag(tag string) {
-	if this.Properties == nil {
-		this.Properties = make(map[string]string)
+var MaxMessageCount = int64(10000)
+
+func (m *Message) SetTag(tag string) {
+	if m.Properties == nil {
+		m.Properties = make(map[string]string)
 	}
-	this.Properties["tag"] = tag
+	m.Properties["tag"] = tag
 }
 
-func (this *Message) GetTag() string {
-	tag, ok := this.Properties["tag"]
+func (m *Message) GetTag() string {
+	tag, ok := m.Properties["tag"]
 	if !ok {
 		return ""
 	}
+
 	return tag
 }

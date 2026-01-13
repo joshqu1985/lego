@@ -10,21 +10,14 @@ type (
 	RouterRegister func(*Router)
 
 	Option func(o *options)
+
+	options struct {
+		Naming         naming.Naming
+		RouterRegister func(*Router)
+		Timeout        time.Duration
+		Metrics        bool
+	}
 )
-
-type options struct {
-	// Timeout
-	Timeout time.Duration
-
-	// Naming
-	Naming naming.Naming
-
-	// RouterRegister
-	RouterRegister func(*Router)
-
-	// Metrics
-	Metrics bool
-}
 
 // WithTimeout set timeout.
 func WithTimeout(timeout time.Duration) Option {

@@ -10,15 +10,21 @@ import (
 	"github.com/hexops/gotextdiff/span"
 )
 
-// MkDir 创建目录
-func Mkdir(dir string) error {
-	return os.MkdirAll(dir, os.ModePerm) //生成多级目录
-}
+const (
+	FileSuffixGo    = ".go"
+	FileSuffixProto = ".proto"
+	FileSuffixGenGo = ".gen.go"
+)
 
 type File struct {
 	Name         string
 	Data         []byte
 	ForceReplace bool
+}
+
+// MkDir 创建目录.
+func Mkdir(dir string) error {
+	return os.MkdirAll(dir, os.ModePerm) // 生成多级目录
 }
 
 func Writes(dst string, files []File) {
@@ -29,14 +35,16 @@ func Writes(dst string, files []File) {
 
 		file.Name = dst + "/" + file.Name
 		if _, err := os.Stat(file.Name); err != nil || file.ForceReplace { // 目标文件不存在或者强制覆盖
-			if err := Write(file); err != nil {
-				glog.Error(err)
+			if xerr := Write(file); xerr != nil {
+				glog.Error(xerr)
+
 				continue
 			}
 		} else {
-			current, err := os.ReadFile(file.Name)
-			if err != nil {
-				glog.Error(err)
+			current, xerr := os.ReadFile(file.Name)
+			if xerr != nil {
+				glog.Error(xerr)
+
 				continue
 			}
 			edits := myers.ComputeEdits(span.URIFromPath(file.Name), string(current), string(file.Data))
@@ -48,14 +56,15 @@ func Writes(dst string, files []File) {
 	}
 }
 
-// Writer 写入文件
+// Writer 写入文件.
 func Write(file File) error {
-	f, err := os.OpenFile(file.Name, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	f, err := os.OpenFile(file.Name, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o666)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
 
 	_, err = f.Write(file.Data)
+
 	return err
 }

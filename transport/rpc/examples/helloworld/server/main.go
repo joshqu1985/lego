@@ -7,8 +7,10 @@ import (
 	"github.com/joshqu1985/lego/transport/rpc"
 )
 
-func init() {
-	_, _ = naming.Init(naming.Config{
+var n naming.Naming
+
+func Init() {
+	n, _ = naming.New(&naming.Config{
 		// Source:    "etcd",
 		// Endpoints: []string{"127.0.0.1:9379"},
 		Source:    "nacos",
@@ -18,13 +20,16 @@ func init() {
 }
 
 func main() {
+	Init()
+
 	name := "helloworld"
 	addr := "127.0.0.1:50051"
 
-	s, err := rpc.NewServer(name, addr, rpc.WithNaming(naming.Get()),
+	s, err := rpc.NewServer(name, addr, rpc.WithNaming(n),
 		rpc.WithRouters(RouterRegister), rpc.WithMetrics())
 	if err != nil {
 		log.Fatalf("new rpc server err:%v", err)
+
 		return
 	}
 

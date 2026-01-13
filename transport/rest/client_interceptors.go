@@ -1,8 +1,8 @@
 package rest
 
 import (
-	"fmt"
-	"math/rand"
+	"errors"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +12,23 @@ import (
 	"github.com/joshqu1985/lego/transport/naming"
 )
 
+var (
+	clientMetricsDuration = metrics.NewHistogram(&metrics.HistogramOpt{
+		Namespace: "http_client",
+		Name:      "exec_duration",
+		Help:      "http client request duration",
+		Labels:    []string{"method"},
+		Buckets:   []float64{3, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000},
+	})
+
+	clientMetricsTotal = metrics.NewCounter(&metrics.CounterOpt{
+		Namespace: "http_client",
+		Name:      "code_total",
+		Help:      "http client request total",
+		Labels:    []string{"method", "code"},
+	})
+)
+
 func ClientResolver(target string, n naming.Naming) (string, error) {
 	service := n.Service(target)
 	addrs, err := service.Addrs()
@@ -19,13 +36,14 @@ func ClientResolver(target string, n naming.Naming) (string, error) {
 		return "", err
 	}
 	if len(addrs) == 0 {
-		return "", fmt.Errorf("resolver target endpoint not found")
+		return "", errors.New("resolver target endpoint not found")
 	}
 
-	endpoint := addrs[rand.Intn(len(addrs))]
+	endpoint := addrs[rand.IntN(len(addrs))] //nolint:gosec
 	if !strings.Contains(endpoint, "://") {
 		endpoint = "http://" + endpoint
 	}
+
 	return endpoint, nil
 }
 
@@ -33,8 +51,10 @@ func ClientBreakerAllow(method string) error {
 	brk := breaker.Get(method)
 	if !brk.Allow() {
 		brk.MarkFail()
-		return fmt.Errorf("circuit breaker not allowed")
+
+		return errors.New("circuit breaker not allowed")
 	}
+
 	return nil
 }
 
@@ -47,21 +67,6 @@ func ClientBreakerMark(method string, code int) {
 		brk.MarkPass()
 	}
 }
-
-var (
-	clientMetricsDuration = metrics.NewHistogram(metrics.HistogramOpt{
-		Namespace: "http_client",
-		Name:      "duration_ms",
-		Labels:    []string{"method"},
-		Buckets:   []float64{3, 5, 10, 50, 100, 250, 500, 1000, 2000, 5000},
-	})
-
-	clientMetricsTotal = metrics.NewCounter(metrics.CounterOpt{
-		Namespace: "http_client",
-		Name:      "code_total",
-		Labels:    []string{"method", "code"},
-	})
-)
 
 func ClientMetrics(method string, elapse int64, code int) {
 	clientMetricsDuration.Observe(elapse, method)

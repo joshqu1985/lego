@@ -1,42 +1,46 @@
 package naming
 
+type (
+	pass struct{}
+
+	passService struct {
+		key string
+	}
+)
+
 func NewPass(conf *Config) Naming {
 	return &pass{}
 }
 
-type pass struct {
+func (p *pass) Endpoints() []string {
+	return make([]string, 0)
 }
 
-func (this *pass) Endpoints() []string {
-	return []string{}
-}
-
-func (this *pass) Name() string {
+func (p *pass) Name() string {
 	return "pass"
 }
 
-func (this *pass) Register(key, val string) error {
-	return nil
-}
-func (this *pass) Deregister(key string) error {
+func (p *pass) Register(key, val string) error {
 	return nil
 }
 
-func (this *pass) Service(key string) RegService {
+func (p *pass) Deregister(key string) error {
+	return nil
+}
+
+func (p *pass) Service(key string) RegService {
 	return &passService{key: key}
 }
 
-type passService struct {
-	key string
+// ----------------- passService -----------------
+
+func (ps *passService) Name() string {
+	return ps.key
 }
 
-func (this *passService) Name() string {
-	return this.key
+func (ps *passService) Addrs() ([]string, error) {
+	return []string{ps.key}, nil
 }
 
-func (this *passService) Addrs() ([]string, error) {
-	return []string{this.key}, nil
-}
-
-func (this *passService) AddListener(f func()) {
+func (ps *passService) AddListener(f func()) {
 }
