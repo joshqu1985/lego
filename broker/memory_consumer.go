@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/joshqu1985/lego/logs"
@@ -42,8 +41,7 @@ func (mc *memoryConsumer) Start() error {
 	mc.lock.Lock()
 	if len(mc.consumers) == 0 {
 		mc.lock.Unlock()
-
-		return errors.New(ErrSubscriberNil)
+		return ErrSubscriberNil
 	}
 
 	consumersCopy := make(map[string]ConsumeCallback)
@@ -94,11 +92,14 @@ func (mc *memoryConsumer) work(topic string, f ConsumeCallback) {
 	for {
 		select {
 		case msg := <-recv:
-			_ = routine.Safe(func() {
+			serr := routine.Safe(func() {
 				if xerr := f(context.Background(), &msg); xerr != nil {
 					logs.Errorf("memory queue process err:%v", xerr)
 				}
 			})
+			if serr != nil {
+				logs.Errorf("memory queue process err:%v", serr)
+			}
 		case <-mc.stopWork:
 			return
 		}

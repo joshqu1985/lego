@@ -43,6 +43,7 @@ func New(conf *Config) (Naming, error) {
 	case SOURCE_ETCD:
 		return NewEtcd(conf)
 	default:
-		return nil, fmt.Errorf("invalid source: %s", conf.Source)
+		return nil, fmt.Errorf("naming: invalid source %s, supported: %s, %s",
+			conf.Source, SOURCE_NACOS, SOURCE_ETCD)
 	}
 }

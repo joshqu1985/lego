@@ -20,7 +20,7 @@ func TestRocketBroker(t *testing.T) {
 	}
 
 	consumer.Register("test", func(ctx context.Context, msg *Message) error {
-		fmt.Println("-------------", time.Now().Unix(), string(msg.Payload))
+		fmt.Println("-------------", time.Now().Unix(), string(msg.GetPayload()))
 		return nil
 	})
 	go consumer.Start()
@@ -34,17 +34,15 @@ func TestRocketBroker(t *testing.T) {
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 1"),
-	})
+	msg1 := NewMessage([]byte("hello kitty 1"))
+	err = producer.Send(context.Background(), "test", msg1)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 2"),
-	})
+	msg2 := NewMessage([]byte("hello kitty 2"))
+	err = producer.Send(context.Background(), "test", msg2)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()

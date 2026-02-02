@@ -105,13 +105,12 @@ func main() {
     defer producer.Close()
     
     // 发送消息
-    msg := &broker.Message{
-        Payload: []byte(`{"order_id":"12345","amount":99.99}`),
-        Key:     "12345", // 订单ID作为消息键
-        Properties: map[string]string{
-            "type": "new_order",
-        },
-    }
+    msg := broker.NewMessage([]byte(`{"order_id":"12345","amount":99.99}`))
+    // msg.SetKey("example_1")
+    // msg.SetProperties(map[string]string{
+    //     "example_2": "new_order",
+    // })
+    // msg.SetTag("example_tag")
     
     if err := producer.Send(context.Background(), "order_created", msg); err != nil {
         log.Printf("发送消息失败: %v", err)
@@ -159,10 +158,10 @@ func main() {
     
     // 注册消息处理函数
     err = consumer.Register("order_created", func(ctx context.Context, msg *broker.Message) error {
-        fmt.Printf("收到消息: %s\n", string(msg.Payload))
-        fmt.Printf("消息ID: %s\n", msg.MessageId)
-        fmt.Printf("消息键: %s\n", msg.Key)
-        fmt.Printf("消息类型: %s\n", msg.Properties["type"])
+        fmt.Printf("收到消息: %s\n", string(msg.GetPayload()))
+        fmt.Printf("消息ID: %s\n", msg.GetMsgId())
+        fmt.Printf("消息键: %s\n", msg.GetKey())
+        fmt.Printf("消息类型: %s\n", msg.GetProperty("type"))
         // 处理消息逻辑...
         return nil // 返回nil表示消息处理成功
     })

@@ -34,7 +34,7 @@ return 1
 
 func NewRedisProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 
 	client := redis.NewClient(&redis.Options{
@@ -60,17 +60,17 @@ func (rp *redisProducer) Send(ctx context.Context, topic string, msg *Message) e
 
 func (rp *redisProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return errors.New(ErrMessageIsNil)
+		return ErrMessageIsNil
 	}
 
 	topicVal, ok := rp.topics[topic]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
-	msg.Topic = topicVal
+	msg.SetTopic(topicVal)
 
 	if rp.CountStream(ctx, topicVal)+rp.CountDelay(ctx, topicVal) > MaxMessageCount {
-		return errors.New(ErrQueueIsFull)
+		return ErrQueueIsFull
 	}
 
 	if stamp > time.Now().Unix() {
@@ -85,21 +85,25 @@ func (rp *redisProducer) Close() error {
 }
 
 func (rp *redisProducer) sendStream(ctx context.Context, msg *Message) error {
-	values := map[string]any{"payload": msg.Payload}
-	if len(msg.Properties) != 0 {
-		data, _ := json.Marshal(&msg.Properties)
+	values := map[string]any{"payload": msg.GetPayload()}
+	properties := msg.GetProperties()
+	if len(properties) != 0 {
+		data, _ := json.Marshal(&properties)
 		values["properties"] = data
 	}
 
 	var err error
 	args := &redis.XAddArgs{
-		Stream: msg.Topic,
+		Stream: msg.GetTopic(),
 		MaxLen: rp.StreamMaxLength,
 		Values: values,
 	}
-	msg.MessageId, err = rp.client.XAdd(ctx, args).Result()
-
-	return err
+	messageId, err := rp.client.XAdd(ctx, args).Result()
+	if err == nil {
+		return err
+	}
+	msg.SetMsgId(messageId)
+	return nil
 }
 
 func (rp *redisProducer) CountStream(ctx context.Context, topic string) int64 {
@@ -107,7 +111,8 @@ func (rp *redisProducer) CountStream(ctx context.Context, topic string) int64 {
 }
 
 func (rp *redisProducer) sendDelay(ctx context.Context, msg *Message, timestamp int64) error {
-	keys := []string{fmt.Sprintf(zsetFormat, msg.Topic), fmt.Sprintf(hashFormat, msg.Topic)}
+	topic := msg.GetTopic()
+	keys := []string{fmt.Sprintf(zsetFormat, topic), fmt.Sprintf(hashFormat, topic)}
 	data, _ := json.Marshal(msg)
 	vals := []any{xid.New().String(), data, timestamp}
 
@@ -118,7 +123,6 @@ func (rp *redisProducer) sendDelay(ctx context.Context, msg *Message, timestamp 
 	if !ok {
 		return errors.New("duplicate message")
 	}
-
 	return nil
 }
 

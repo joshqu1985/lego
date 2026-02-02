@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 
 	"github.com/segmentio/kafka-go"
 
@@ -20,7 +19,7 @@ type kafkaConsumer struct {
 // NewKafkaConsumer 创建Consumer.
 func NewKafkaConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 
 	topicVals := make([]string, 0)
@@ -47,11 +46,10 @@ func NewKafkaConsumer(conf *Config) (Consumer, error) {
 func (kc *kafkaConsumer) Register(topicKey string, f ConsumeCallback) error {
 	topicVal, ok := kc.topics[topicKey]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	kc.callbacks[topicVal] = f
-
 	return nil
 }
 
@@ -66,14 +64,12 @@ func (kc *kafkaConsumer) Start() error {
 				continue
 			}
 
-			data := &Message{
-				Topic:      msg.Topic,
-				Properties: make(map[string]string),
-				Payload:    msg.Value,
-			}
+			data := NewMessage(msg.Value)
 			for _, header := range msg.Headers {
-				data.Properties[header.Key] = string(header.Value)
+				data.SetProperty(header.Key, string(header.Value))
 			}
+			data.SetTopic(msg.Topic)
+
 			fn, ok := kc.callbacks[msg.Topic]
 			if !ok || fn == nil {
 				continue

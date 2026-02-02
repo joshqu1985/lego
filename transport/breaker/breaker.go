@@ -24,13 +24,14 @@ func Get(name string) Breaker {
 	}
 
 	lock.Lock()
-	breaker, ok = breakers[name]
-	if !ok {
-		breaker = newBreaker(name)
-		breakers[name] = breaker
-	}
-	lock.Unlock()
+	defer lock.Unlock()
 
+	if breaker, ok := breakers[name]; ok {
+		return breaker
+	}
+
+	breaker = newBreaker(name)
+	breakers[name] = breaker
 	return breaker
 }
 

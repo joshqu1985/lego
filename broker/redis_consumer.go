@@ -81,7 +81,7 @@ return value
 
 func NewRedisConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 
 	client := redis.NewClient(&redis.Options{
@@ -118,7 +118,7 @@ func NewRedisConsumer(conf *Config) (Consumer, error) {
 func (rc *redisConsumer) Register(topicKey string, f ConsumeCallback) error {
 	topicVal, ok := rc.topics[topicKey]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	rc.consumers[topicVal] = registered{callback: f, offset: "$"}
@@ -128,7 +128,7 @@ func (rc *redisConsumer) Register(topicKey string, f ConsumeCallback) error {
 
 func (rc *redisConsumer) Start() error {
 	if len(rc.consumers) == 0 {
-		return errors.New("none consumer registered")
+		return ErrSubscriberNil
 	}
 
 	streams := make([]string, 0)
@@ -152,7 +152,9 @@ func (rc *redisConsumer) Start() error {
 	stop := signalHandler()
 	go func() {
 		<-stop
-		_ = rc.Close()
+		if err := rc.Close(); err != nil {
+			logs.Errorf(RedisLogPrefix+" Close err:%v", err)
+		}
 	}()
 
 	rc.wg.Add(rc.Concurrency)
@@ -172,7 +174,8 @@ func (rc *redisConsumer) Close() error {
 		rc.stopWork <- struct{}{}
 	}
 
-	return nil
+	rc.wg.Wait()
+	return rc.client.Close()
 }
 
 func (rc *redisConsumer) claim() {
@@ -236,19 +239,20 @@ func (rc *redisConsumer) xread(streams []string) {
 
 func (rc *redisConsumer) enqueue(topic string, msgs []redis.XMessage) {
 	for _, m := range msgs {
-		msg := &Message{
-			Topic:     topic,
-			MessageId: m.ID,
-		}
+		msg := &Message{}
+		msg.SetTopic(topic)
+		msg.SetMsgId(m.ID)
 
 		if v, ok := m.Values["properties"]; ok {
 			data, _ := v.(string)
-			_ = json.Unmarshal([]byte(data), &msg.Properties)
+			properties := map[string]string{}
+			_ = json.Unmarshal([]byte(data), &properties)
+			msg.SetProperties(properties)
 		}
 
 		if v, ok := m.Values["payload"]; ok {
 			data, _ := v.(string)
-			msg.Payload = []byte(data)
+			msg.SetPayload([]byte(data))
 		}
 		rc.queue <- msg
 	}
@@ -260,18 +264,17 @@ func (rc *redisConsumer) work() {
 	for {
 		select {
 		case msg := <-rc.queue:
-			register, ok := rc.consumers[msg.Topic]
+			register, ok := rc.consumers[msg.GetTopic()]
 			if !ok || register.callback == nil {
-				if err := rc.client.XAck(context.Background(), msg.Topic, rc.groupId, msg.MessageId).Err(); err != nil {
+				if err := rc.client.XAck(context.Background(), msg.GetTopic(), rc.groupId, msg.GetMsgId()).Err(); err != nil {
 					logs.Errorf(RedisLogPrefix+" XAck err:%v", err)
 				}
-
 				continue
 			}
 
 			_ = routine.Safe(func() {
 				_ = register.callback(context.Background(), msg)
-				if err := rc.client.XAck(context.Background(), msg.Topic, rc.groupId, msg.MessageId).Err(); err != nil {
+				if err := rc.client.XAck(context.Background(), msg.GetTopic(), rc.groupId, msg.GetMsgId()).Err(); err != nil {
 					logs.Errorf(RedisLogPrefix+" XAck err:%v", err)
 				}
 			})
@@ -293,7 +296,6 @@ func (rc *redisConsumer) claimStream(stream string) {
 		}).Result()
 		if err != nil && !errors.Is(err, redis.Nil) {
 			logs.Errorf(RedisLogPrefix+" XPendingExt err:%v", err)
-
 			break
 		}
 		if len(pendings) == 0 {
@@ -314,13 +316,11 @@ func (rc *redisConsumer) claimStream(stream string) {
 			}).Result()
 			if xerr != nil && !errors.Is(xerr, redis.Nil) {
 				logs.Errorf(RedisLogPrefix+" XClaim err:%v", err)
-
 				break
 			}
 			if errors.Is(xerr, redis.Nil) {
 				if yerr := rc.client.XAck(context.Background(), stream, rc.groupId, pending.ID).Err(); yerr != nil {
 					logs.Errorf(RedisLogPrefix+" XAck err:%v", yerr)
-
 					continue
 				}
 			}
@@ -329,7 +329,6 @@ func (rc *redisConsumer) claimStream(stream string) {
 				for _, msg := range claimMsgs {
 					if zerr := rc.client.XAck(context.Background(), stream, rc.groupId, msg.ID).Err(); zerr != nil {
 						logs.Errorf(RedisLogPrefix+" XAck retry count gt N err:%v", zerr)
-
 						continue
 					}
 				}
@@ -374,9 +373,10 @@ func (rc *redisConsumer) repostDelay(stream string) {
 				continue
 			}
 
-			values := map[string]any{"payload": msg.Payload}
-			if len(msg.Properties) != 0 {
-				data, _ := json.Marshal(&msg.Properties)
+			values := map[string]any{"payload": msg.GetPayload()}
+			if len(msg.GetProperties()) != 0 {
+				properties := map[string]string{}
+				data, _ := json.Marshal(&properties)
 				values["properties"] = data
 			}
 			if _, zerr := rc.client.XAdd(context.Background(), &redis.XAddArgs{

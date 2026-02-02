@@ -13,7 +13,7 @@ func TestMemoryBroker(t *testing.T) {
 		Topics:  map[string]string{"test": "test"},
 	})
 	consumer.Register("test", func(ctx context.Context, msg *Message) error {
-		fmt.Println(time.Now().Unix(), string(msg.Payload))
+		fmt.Println(time.Now().Unix(), string(msg.GetPayload()))
 		return nil
 	})
 	go consumer.Start()
@@ -21,26 +21,23 @@ func TestMemoryBroker(t *testing.T) {
 	producer, _ := NewMemoryProducer(&Config{
 		Topics: map[string]string{"test": "test"},
 	})
-	err := producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 1"),
-	})
+	msg1 := NewMessage([]byte("hello kitty 1"))
+	err := producer.Send(context.Background(), "test", msg1)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 2"),
-	})
+	msg2 := NewMessage([]byte("hello kitty 2"))
+	err = producer.Send(context.Background(), "test", msg2)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
 	curr := time.Now().Unix()
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 3"),
-	})
+	msg3 := NewMessage([]byte("hello kitty 3"))
+	err = producer.Send(context.Background(), "test", msg3)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()

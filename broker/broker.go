@@ -2,7 +2,7 @@ package broker
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 const (
@@ -12,12 +12,6 @@ const (
 	SourceRedis   = "redis"
 	SourceMemory  = "memory"
 	SourceUnknown = "unsupported"
-
-	ErrEndpointsEmpty = "endpoints is empty"
-	ErrSubscriberNil  = "subscriber is nil"
-	ErrMessageIsNil   = "message is nil"
-	ErrQueueIsFull    = "queue is full"
-	ErrTopicNotFound  = "topic not found"
 )
 
 type (
@@ -39,6 +33,15 @@ type (
 	ConsumeCallback func(context.Context, *Message) error
 )
 
+var (
+	ErrEndpointsEmpty   = errors.New("endpoints is empty")
+	ErrSubscriberNil    = errors.New("subscriber is nil")
+	ErrMessageIsNil     = errors.New("message is nil")
+	ErrQueueIsFull      = errors.New("queue is full")
+	ErrTopicNotFound    = errors.New("topic not found")
+	ErrSourceNotSupport = errors.New("source not support")
+)
+
 // NewProducer 创建Producer.
 func NewProducer(conf *Config) (Producer, error) {
 	switch conf.Source {
@@ -53,7 +56,7 @@ func NewProducer(conf *Config) (Producer, error) {
 	case SourceMemory:
 		return NewMemoryProducer(conf)
 	default:
-		return nil, fmt.Errorf("%s:%s", SourceUnknown, conf.Source)
+		return nil, ErrSourceNotSupport
 	}
 }
 
@@ -71,6 +74,6 @@ func NewConsumer(conf *Config) (Consumer, error) {
 	case SourceMemory:
 		return NewMemoryConsumer(conf)
 	default:
-		return nil, fmt.Errorf("%s:%s", SourceUnknown, conf.Source)
+		return nil, ErrSourceNotSupport
 	}
 }

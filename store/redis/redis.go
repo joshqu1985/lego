@@ -10,6 +10,8 @@ import (
 )
 
 const (
+	DefaultRedisDialTimeout = 5 * time.Second
+
 	RedisNil = goredis.Nil //nolint:errname
 )
 
@@ -18,7 +20,7 @@ type (
 	Z         = goredis.Z
 
 	Store struct {
-		singel  *goredis.Client
+		single  *goredis.Client
 		cluster *goredis.ClusterClient
 		mode    int // 0 单机 1 集群
 	}
@@ -38,14 +40,14 @@ func New(conf Config) (*Store, error) {
 		return nil, errors.New("endpoints is empty")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultRedisDialTimeout)
 	defer cancel()
 
 	var err error
 	store := &Store{mode: conf.Mode}
 
 	if conf.Mode == 0 {
-		store.singel, err = newSingel(ctx, conf)
+		store.single, err = newSingle(ctx, conf)
 	} else {
 		store.cluster, err = newCluster(ctx, conf)
 	}
@@ -55,17 +57,17 @@ func New(conf Config) (*Store, error) {
 
 func (s *Store) client() goredis.Cmdable {
 	if s.mode == 0 {
-		return s.singel
+		return s.single
 	} else {
 		return s.cluster
 	}
 }
 
-func newSingel(ctx context.Context, conf Config) (*goredis.Client, error) {
+func newSingle(ctx context.Context, conf Config) (*goredis.Client, error) {
 	var tlsConfig *tls.Config
 	if conf.TLS {
 		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
+			MinVersion: tls.VersionTLS12,
 		}
 	}
 
@@ -85,7 +87,7 @@ func newCluster(ctx context.Context, conf Config) (*goredis.ClusterClient, error
 	var tlsConfig *tls.Config
 	if conf.TLS {
 		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true, //nolint:gosec
+			MinVersion: tls.VersionTLS12,
 		}
 	}
 

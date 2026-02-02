@@ -15,7 +15,7 @@ type kafkaProducer struct {
 // NewKafkaProducer 创建Producer.
 func NewKafkaProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 
 	client := kafka.NewWriter(kafka.WriterConfig{
@@ -31,23 +31,23 @@ func NewKafkaProducer(conf *Config) (Producer, error) {
 
 func (kp *kafkaProducer) Send(ctx context.Context, topicKey string, msg *Message) error {
 	if msg == nil {
-		return errors.New(ErrMessageIsNil)
+		return ErrMessageIsNil
 	}
 
 	topicVal, ok := kp.topics[topicKey]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	data := kafka.Message{
 		Topic:   topicVal,
 		Headers: make([]kafka.Header, 0),
-		Key:     []byte(msg.Key),
-		Value:   msg.Payload,
+		Key:     []byte(msg.GetKey()),
+		Value:   msg.GetPayload(),
 	}
-	for key, val := range msg.Properties {
+	msg.RangeProperty(func(key, val string) {
 		data.Headers = append(data.Headers, kafka.Header{Key: key, Value: []byte(val)})
-	}
+	})
 
 	return kp.client.WriteMessages(ctx, data)
 }

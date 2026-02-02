@@ -58,19 +58,19 @@ func (mp *memoryProducer) Send(ctx context.Context, topic string, msg *Message) 
 
 func (mp *memoryProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return errors.New(ErrMessageIsNil)
+		return ErrMessageIsNil
 	}
-	msg.Topic = topic
-	msg.MessageId = xid.New().String()
+	msg.SetTopic(topic)
+	msg.SetMsgId(xid.New().String())
 
 	data, ok := mp.broker.queues.Load(topic)
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	queue, _ := data.(*TopicQueue)
 	if int64(queue.priority.Size()+queue.linked.Size()) > MaxMessageCount {
-		return errors.New(ErrQueueIsFull)
+		return ErrQueueIsFull
 	}
 
 	if stamp > time.Now().Unix() {
@@ -98,7 +98,7 @@ func getMemoryBroker(topics map[string]string) *memoryBroker {
 		}
 		lock.RLock()
 		broker = newMemoryBroker(keys)
-		lock.Unlock()
+		lock.RUnlock()
 	})
 
 	lock.RLock()
@@ -212,7 +212,7 @@ func (mp *memoryBroker) getSubChannel(topic, groupId string) (<-chan Message, er
 
 	subs, ok := mp.sublist[topic]
 	if !ok {
-		return nil, errors.New(ErrSubscriberNil)
+		return nil, ErrSubscriberNil
 	}
 
 	for _, sub := range subs {
@@ -220,8 +220,7 @@ func (mp *memoryBroker) getSubChannel(topic, groupId string) (<-chan Message, er
 			return sub.output, nil
 		}
 	}
-
-	return nil, errors.New(ErrSubscriberNil)
+	return nil, ErrSubscriberNil
 }
 
 func (mp *memoryBroker) addSubscriber(topic, groupId string) {
@@ -275,7 +274,7 @@ func (mp *memoryBroker) getSubscribers(topic string) ([]Subscriber, error) {
 
 	subs, ok := mp.sublist[topic]
 	if !ok {
-		return nil, errors.New(ErrSubscriberNil)
+		return nil, ErrSubscriberNil
 	}
 
 	result := make([]Subscriber, len(subs))

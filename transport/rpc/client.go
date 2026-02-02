@@ -12,6 +12,10 @@ import (
 	"github.com/joshqu1985/lego/transport/rpc/resolver"
 )
 
+const (
+	DefaultRPCTimeout = 3 * time.Second
+)
+
 type Client struct {
 	target  string
 	conn    *grpc.ClientConn
@@ -31,7 +35,7 @@ func NewClient(target string, opts ...Option) (*Client, error) {
 		option.Naming = naming.NewPass(&naming.Config{})
 	}
 	if option.Timeout == 0 {
-		option.Timeout = time.Duration(3) * time.Second
+		option.Timeout = DefaultRPCTimeout
 	}
 
 	builder, err := resolver.New(option.Naming)

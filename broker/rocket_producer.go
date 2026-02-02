@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"os"
 	"time"
 
@@ -18,7 +17,7 @@ type rocketProducer struct {
 
 func NewRocketProducer(conf *Config) (Producer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 	os.Setenv(MQConsoleAppenderEnabled, "true")
 	rocket.ResetLogger()
@@ -57,28 +56,28 @@ func (rp *rocketProducer) Send(ctx context.Context, topic string, msg *Message) 
 
 func (rp *rocketProducer) SendDelay(ctx context.Context, topic string, msg *Message, stamp int64) error {
 	if msg == nil {
-		return errors.New(ErrMessageIsNil)
+		return ErrMessageIsNil
 	}
 
 	topicVal, ok := rp.topics[topic]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	data := rocket.Message{
 		Topic: topicVal,
-		Body:  msg.Payload,
+		Body:  msg.GetPayload(),
 	}
-	if msg.Key != "" {
-		data.SetKeys(msg.Key)
+	if msg.GetKey() != "" {
+		data.SetKeys(msg.GetKey())
 	}
 
-	for key, val := range msg.Properties {
+	msg.RangeProperty(func(key, val string) {
 		if key == "tag" {
 			data.SetTag(val)
 		}
 		data.AddProperty(key, val)
-	}
+	})
 
 	if stamp > time.Now().Unix() {
 		data.SetDelayTimestamp(time.Unix(stamp, 0))
@@ -86,7 +85,7 @@ func (rp *rocketProducer) SendDelay(ctx context.Context, topic string, msg *Mess
 
 	receives, err := rp.client.Send(ctx, &data)
 	if len(receives) > 0 {
-		msg.MessageId = receives[0].MessageID
+		msg.SetMsgId(receives[0].MessageID)
 	}
 
 	return err

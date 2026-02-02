@@ -78,7 +78,7 @@ func (s *Server) Start() error {
 
 	s.router(s.grpcSrv)
 	if xerr := s.httpServe(s.Addr); xerr != nil {
-		logs.Error("health check http serve err:%v", xerr)
+		logs.Warnf("health check http serve err:%v", xerr)
 	}
 
 	monitor := NewMonitor()

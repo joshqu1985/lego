@@ -34,6 +34,7 @@ type (
 		key       string
 		listeners []func()
 		revision  int64
+		quit      chan struct{}
 		sync.RWMutex
 	}
 )
@@ -96,7 +97,9 @@ func (e *etcd) Service(key string) RegService {
 		key:    key,
 		client: e.client,
 	}
-	go func() { _ = service.Watch() }()
+	go func() {
+		_ = service.Watch() // 不会有返回，为了接口统一才有返回参数
+	}()
 
 	e.services[key] = service
 
@@ -152,13 +155,15 @@ func (e *etcd) keepAlive() error {
 			select {
 			case _, ok := <-ch:
 				if !ok {
-					_ = e.revoke()
-
+					if xerr := e.revoke(); xerr != nil {
+						logs.Errorf("etcd revoke err:%v", xerr)
+					}
 					return
 				}
 			case <-e.quit:
-				_ = e.revoke()
-
+				if xerr := e.revoke(); xerr != nil {
+					logs.Errorf("etcd revoke err:%v", xerr)
+				}
 				return
 			}
 		}
@@ -169,7 +174,6 @@ func (e *etcd) keepAlive() error {
 
 func (e *etcd) revoke() error {
 	_, err := e.client.Revoke(context.Background(), e.lease)
-
 	return err
 }
 
@@ -230,11 +234,16 @@ func (es *etcdService) load() (map[string]string, error) {
 
 func (es *etcdService) Watch() error {
 	key := fmt.Sprintf("%s:%s:", es.prefix, es.key)
-	watchCh := es.client.Watch(context.Background(), key,
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	watchCh := es.client.Watch(ctx, key,
 		clientv3.WithPrefix(), clientv3.WithRev(es.revision+1))
 
 	for {
 		select {
+		case <-es.quit:
+			return nil
 		case resp, ok := <-watchCh:
 			if !ok {
 				return errors.New("etcd watch chan has been closed")
@@ -245,6 +254,10 @@ func (es *etcdService) Watch() error {
 			es.processEvents(resp.Events)
 		}
 	}
+}
+
+func (es *etcdService) Close() {
+	close(es.quit)
 }
 
 func (es *etcdService) processEvents(events []*clientv3.Event) {

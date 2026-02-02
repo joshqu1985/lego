@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/apache/pulsar-client-go/pulsar"
@@ -23,7 +22,7 @@ type pulsarConsumer struct {
 // NewPulsarConsumer 创建PulsarConsumer.
 func NewPulsarConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -63,17 +62,16 @@ func NewPulsarConsumer(conf *Config) (Consumer, error) {
 func (pc *pulsarConsumer) Register(topicKey string, f ConsumeCallback) error {
 	topicVal, ok := pc.topics[topicKey]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	pc.callbacks[topicVal] = f
-
 	return nil
 }
 
 func (pc *pulsarConsumer) Start() error {
 	if len(pc.callbacks) == 0 {
-		return errors.New(ErrSubscriberNil)
+		return ErrSubscriberNil
 	}
 
 	for {
@@ -91,11 +89,9 @@ func (pc *pulsarConsumer) Start() error {
 				continue
 			}
 
-			data := &Message{
-				Payload:    msg.Payload(),
-				Topic:      vals[0],
-				Properties: msg.Properties(),
-			}
+			data := NewMessage(msg.Payload())
+			data.SetTopic(vals[0])
+			data.SetProperties(msg.Properties())
 			if err := routine.Safe(func() {
 				if err := fn(context.Background(), data); err == nil {
 					_ = cm.Ack(msg)

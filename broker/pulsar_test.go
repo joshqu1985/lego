@@ -20,7 +20,7 @@ func TestPulsarBroker(t *testing.T) {
 	}
 
 	consumer.Register("test", func(ctx context.Context, msg *Message) error {
-		fmt.Println("-------------", time.Now().Unix(), string(msg.Payload))
+		fmt.Println("-------------", time.Now().Unix(), string(msg.GetPayload()))
 		return nil
 	})
 	go consumer.Start()
@@ -34,17 +34,15 @@ func TestPulsarBroker(t *testing.T) {
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 3"),
-	})
+	msg3 := NewMessage([]byte("hello kitty 3"))
+	err = producer.Send(context.Background(), "test", msg3)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 4"),
-	})
+	msg4 := NewMessage([]byte("hello kitty 4"))
+	err = producer.Send(context.Background(), "test", msg4)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()

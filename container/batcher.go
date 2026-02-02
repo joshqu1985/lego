@@ -91,8 +91,11 @@ func (b *Batcher) flush() {
 	if len(b.entries) == 0 {
 		return
 	}
-	b.queue <- b.entries
-	b.entries = make([]any, 0, b.bulkSize)
+
+	entries := make([]any, len(b.entries))
+	copy(entries, b.entries)
+	b.queue <- entries
+	b.entries = b.entries[:0]
 }
 
 // WithInterval 设置批量的最大等待时间.

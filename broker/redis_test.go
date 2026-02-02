@@ -14,7 +14,7 @@ func TestRedisBroker(t *testing.T) {
 		Topics:    map[string]string{"test": "test"},
 	})
 	consumer.Register("test", func(ctx context.Context, msg *Message) error {
-		fmt.Println(time.Now().Unix(), string(msg.Payload))
+		fmt.Println(time.Now().Unix(), string(msg.GetPayload()))
 		return nil
 	})
 	go consumer.Start()
@@ -23,26 +23,23 @@ func TestRedisBroker(t *testing.T) {
 		Endpoints: []string{"127.0.0.1:6379"},
 		Topics:    map[string]string{"test": "test"},
 	})
-	err := producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 1"),
-	})
+	msg1 := NewMessage([]byte("hello kitty 1"))
+	err := producer.Send(context.Background(), "test", msg1)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 2"),
-	})
+	msg2 := NewMessage([]byte("hello kitty 2"))
+	err = producer.Send(context.Background(), "test", msg2)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
 	}
 
 	curr := time.Now().Unix()
-	err = producer.Send(context.Background(), "test", &Message{
-		Payload: []byte("hello kitty 3"),
-	})
+	msg3 := NewMessage([]byte("hello kitty 3"))
+	err = producer.Send(context.Background(), "test", msg3)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()
@@ -65,9 +62,8 @@ func BenchmarkRedisProducer(b *testing.B) {
 		b.ResetTimer()
 
 		for i := 0; i <= b.N; i++ {
-			_ = producer.Send(ctx, "test", &Message{
-				Payload: []byte("hello kitty"),
-			})
+			msgx := NewMessage([]byte("hello kitty"))
+			_ = producer.Send(ctx, "test", msgx)
 		}
 	})
 }

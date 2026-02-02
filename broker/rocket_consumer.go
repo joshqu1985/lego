@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"errors"
 	"os"
 	"time"
 
@@ -28,7 +27,7 @@ type rocketConsumer struct {
 // NewRocketConsumer 创建RocketConsumer.
 func NewRocketConsumer(conf *Config) (Consumer, error) {
 	if len(conf.Endpoints) == 0 {
-		return nil, errors.New(ErrEndpointsEmpty)
+		return nil, ErrEndpointsEmpty
 	}
 	os.Setenv(MQConsoleAppenderEnabled, "true")
 	rocket.ResetLogger()
@@ -65,11 +64,10 @@ func NewRocketConsumer(conf *Config) (Consumer, error) {
 func (rc *rocketConsumer) Register(topicKey string, f ConsumeCallback) error {
 	topicVal, ok := rc.topics[topicKey]
 	if !ok {
-		return errors.New(ErrTopicNotFound)
+		return ErrTopicNotFound
 	}
 
 	rc.callbacks[topicVal] = f
-
 	return nil
 }
 
@@ -91,17 +89,14 @@ func (rc *rocketConsumer) Start() error {
 				fn, ok := rc.callbacks[msg.GetTopic()]
 				if !ok || fn == nil {
 					_ = rc.client.Ack(context.Background(), msg)
-
 					continue
 				}
 
-				data := &Message{
-					Payload:    msg.GetBody(),
-					Topic:      msg.GetTopic(),
-					Properties: msg.GetProperties(),
-				}
+				data := NewMessage(msg.GetBody())
+				data.SetTopic(msg.GetTopic())
+				data.SetProperties(msg.GetProperties())
 				if msg.GetTag() != nil {
-					data.Properties["tag"] = *msg.GetTag()
+					data.SetTag(*msg.GetTag())
 				}
 
 				if yerr := routine.Safe(func() {
