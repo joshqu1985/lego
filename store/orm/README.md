@@ -215,13 +215,13 @@ if err == orm.ErrRecordNotFound {
 
 模块自动集成了性能监控功能，主要记录以下指标：
 
-1. **查询耗时**：`{namespace}_duration_ms` 直方图，记录所有数据库操作的耗时分布
-   - MySQL: `mysql_duration_ms`
-   - PostgreSQL: `postgre_duration_ms`
+1. **查询耗时**：`{namespace}_exec_duration` 直方图，记录所有数据库操作的耗时分布
+   - MySQL: `mysql_exec_duration`
+   - PostgreSQL: `postgre_exec_duration`
 
 2. **慢查询计数**：`{namespace}_slow_count` 计数器，记录执行时间超过500ms的慢查询数量
    - MySQL: `mysql_slow_count`
-   - PostgreSQL: `postgre_slow_count`
+   - PostgreSQL: `postgre_slow_total`
 
 监控指标包含`command`标签，可用于区分不同类型的操作。
 

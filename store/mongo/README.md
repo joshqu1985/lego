@@ -226,8 +226,8 @@ if err != nil {
 
 模块自动集成了性能监控指标，记录以下信息：
 
-1. **执行时间**：通过`mongo_client_duration_ms`直方图记录操作耗时
-2. **慢查询统计**：通过`mongo_client_slow_count`计数器记录慢查询次数（>500ms）
+1. **执行时间**：通过`mongo_client_exec_duration`直方图记录操作耗时
+2. **慢查询统计**：通过`mongo_client_slow_total`计数器记录慢查询次数（>500ms）
 3. **标签支持**：可以通过`labels`参数为操作添加自定义标签，方便分类统计
 
 监控指标分桶定义：[3ms, 5ms, 10ms, 50ms, 100ms, 250ms, 500ms, 1000ms, 2000ms, 5000ms]

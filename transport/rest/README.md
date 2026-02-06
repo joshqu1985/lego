@@ -196,11 +196,11 @@ server, _ := rest.NewServer(
 模块提供了完善的指标收集功能：
 
 **客户端指标**：
-- `http_client_duration_ms`：请求耗时直方图
+- `http_client_exec_duration`：请求耗时直方图
 - `http_client_code_total`：请求状态码计数器
 
 **服务端指标**：
-- `http_server_duration_ms`：请求处理耗时直方图
+- `http_server_exec_duration`：请求处理耗时直方图
 - `http_server_code_total`：响应状态码计数器
 
 通过 `WithMetrics()` 选项启用指标收集，指标可通过 `/metrics` 端点访问（Prometheus 格式）。

@@ -217,12 +217,12 @@ curl http://localhost:8001/ping  # 假设 gRPC 服务运行在 8000 端口
 
 ### 服务端指标
 
-- `rpc_server_duration_ms`：RPC 调用耗时直方图
+- `rpc_server_exec_duration`：RPC 调用耗时直方图
 - `rpc_server_code_total`：RPC 调用结果计数器（按方法和状态码分类）
 
 ### 客户端指标
 
-- `rpc_client_duration_ms`：客户端调用耗时直方图
+- `rpc_client_exec_duration`：客户端调用耗时直方图
 - `rpc_client_code_total`：客户端调用结果计数器（按方法和状态码分类）
 
 ## 信号处理与优雅关闭
