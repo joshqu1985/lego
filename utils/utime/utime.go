@@ -2,7 +2,6 @@ package utime
 
 import (
 	"database/sql/driver"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -22,11 +21,14 @@ func Now() *Time {
 }
 
 // New 基于时间字符串构建Time.
+// 注（x-stock 2026-08-31 修复）：按 Local 时区解析——原 time.Parse 按 UTC 解析，
+// 与 Now()/DB(loc=Local) 差 8 小时，日期边界比较（回测 from/to、建仓日）会被
+// 钳到次日（详见 x-stock rewrite-five-modules 5.9 验收发现的时区偏移 bug）。
 func New(s string, layout ...string) *Time {
 	if len(layout) == 0 {
 		layout = []string{time.DateTime}
 	}
-	t, _ := time.Parse(layout[0], s)
+	t, _ := time.ParseInLocation(layout[0], s, time.Local)
 	if t.IsZero() {
 		return nil
 	}
@@ -135,16 +137,10 @@ func (t *Time) YearEnd() *Time {
 	return &Time{t.YearBegin().AddDate(1, 0, 0).Add(-time.Nanosecond)}
 }
 
-// MarshalJSON 序列化.
-func (t *Time) MarshalJSON() ([]byte, error) {
-	if t == nil {
-		return []byte("0"), nil
-	}
-
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, uint64(t.UnixMilli()))
-
-	return buf, nil
+// MarshalJSON 序列化为 unix 毫秒 JSON 数字（值接收者，值/指针字段输出一致）。
+// 原实现返回裸 8 字节二进制（非合法 JSON），导致 json.Marshal 整体失败，此处修正。
+func (t Time) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatInt(t.UnixMilli(), 10)), nil
 }
 
 // UnmarshalJSON 反序列化.
@@ -170,6 +166,11 @@ func (t *Time) Scan(v any) error {
 	if t == nil {
 		return errors.New("time is nil")
 	}
+	if v == nil {
+		*t = Time{} // NULL → 零值
+
+		return nil
+	}
 
 	value, ok := v.(time.Time)
 	if !ok {
@@ -180,10 +181,13 @@ func (t *Time) Scan(v any) error {
 	return nil
 }
 
-// Value sql.driver.Valuer.
-func (t *Time) Value() (driver.Value, error) {
-	if t == nil || t.IsZero() {
-		return time.Time{}, nil
+// Value sql.driver.Valuer。
+// 用值接收者：gorm 模型结构体字段为 utime.Time 值类型时，driver 要求值类型实现 Valuer
+// （指针接收者版本在 gorm 写入时会报 unsupported type utime.Time, a struct）。
+// 零值返回 nil（NULL）：零值 time.Time 会被驱动写成 '0000-00-00'，MySQL 8 默认 sql_mode 拒绝。
+func (t Time) Value() (driver.Value, error) {
+	if t.IsZero() {
+		return nil, nil
 	}
 
 	return t.Time, nil

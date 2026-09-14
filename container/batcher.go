@@ -16,6 +16,7 @@ type (
 		interval  time.Duration
 		bulkSize  int64
 		queueSize int64
+		closed    bool // Close 后禁止再 flush（防止向已关闭的 queue 写入）
 		sync.RWMutex
 	}
 
@@ -38,6 +39,7 @@ func NewBatcher(opts ...BatcherOption) *Batcher {
 	}
 	batcher.entries = make([]any, 0, batcher.bulkSize)
 	batcher.queue = make(chan []any, batcher.queueSize)
+	batcher.done = make(chan struct{})
 
 	routine.Go(func() { batcher.intervalFlush() })
 
@@ -60,7 +62,9 @@ func (b *Batcher) Queue() chan []any {
 
 func (b *Batcher) Close() error {
 	close(b.done)
-	b.ticker.Stop()
+	if b.ticker != nil {
+		b.ticker.Stop()
+	}
 
 	b.Lock()
 	defer b.Unlock()
@@ -68,6 +72,9 @@ func (b *Batcher) Close() error {
 	if len(b.entries) > 0 {
 		b.flush()
 	}
+	b.closed = true
+	close(b.queue)
+
 	return nil
 }
 
@@ -88,7 +95,7 @@ func (b *Batcher) intervalFlush() {
 }
 
 func (b *Batcher) flush() {
-	if len(b.entries) == 0 {
+	if b.closed || len(b.entries) == 0 {
 		return
 	}
 
